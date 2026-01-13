@@ -1,0 +1,30 @@
+[project]
+name = "afterpaths"
+version = "0.1.0"
+description = "A research log for AI-assisted work"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+dependencies = [
+    "click>=8.0.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+summarize = [
+    "anthropic>=0.39.0",
+]
+openai = [
+    "openai>=1.0.0",
+]
+all = [
+    "anthropic>=0.39.0",
+    "openai>=1.0.0",
+]
+
+[project.scripts]
+afterpaths = "afterpaths.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
