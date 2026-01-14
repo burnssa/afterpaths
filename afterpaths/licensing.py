@@ -10,9 +10,8 @@ class LicenseError(Exception):
     pass
 
 
-# Features that require a Pro license
+# Features that require a Pro license (rules extraction is now free)
 PRO_FEATURES = {
-    "rules": "Automatic rule extraction from session summaries",
     "vault": "Publish and install community rule sets",
 }
 

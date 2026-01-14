@@ -604,8 +604,6 @@ def rules(days, rebuild, dry_run, target):
     Turn your hard-won discoveries into persistent guidance—no more manually
     writing CLAUDE.md rules after every painful debugging session.
 
-    This is a Pro feature. Activate with: afterpaths activate <license-key>
-
     Examples:
         afterpaths rules                    # Extract and export to all targets
         afterpaths rules --days=30          # Include last 30 days
@@ -613,16 +611,8 @@ def rules(days, rebuild, dry_run, target):
         afterpaths rules --rebuild          # Rebuild from scratch
         afterpaths rules --dry-run          # Preview without writing
     """
-    from .licensing import check_license, LicenseError
     from .rules import run_extract_rules
     from .llm import get_provider_info
-
-    # Check license
-    try:
-        check_license("rules")
-    except LicenseError as e:
-        click.echo(f"Pro feature required: {e}")
-        return
 
     click.echo(f"Extracting rules from last {days} days of summaries...")
     click.echo(f"LLM: {get_provider_info()}")
@@ -687,11 +677,9 @@ def rules(days, rebuild, dry_run, target):
 @cli.command()
 @click.argument("license_key")
 def activate(license_key):
-    """Activate a Pro license.
+    """Activate a license key (for future premium features like Vault).
 
     Stores your license key in the project's .env file.
-
-    Get a license at https://afterpaths.dev/pro
     """
     from .licensing import activate_license, validate_license_key
 
@@ -700,26 +688,17 @@ def activate(license_key):
         click.echo("License keys start with 'AP-' (e.g., AP-PRO-xxxxx)")
         return
 
-    # Validate format
-    if not validate_license_key(license_key, "rules"):
-        click.echo("Warning: This key may not enable all Pro features.")
-
     try:
         activate_license(license_key)
         click.echo(f"License activated: {license_key[:15]}...")
         click.echo("Stored in .env file.")
-        click.echo()
-        click.echo("Pro features now available:")
-        click.echo("  - afterpaths rules")
-        click.echo("  - afterpaths vault (coming soon)")
     except Exception as e:
         click.echo(f"Failed to activate: {e}")
 
 
 @cli.command()
 def status():
-    """Show afterpaths status and license info."""
-    from .licensing import get_license_status, PRO_FEATURES
+    """Show afterpaths status and configuration."""
     from .llm import get_provider_info
     from .storage import get_afterpaths_dir, get_meta
 
@@ -741,22 +720,6 @@ def status():
     if rules_meta.get("last_run"):
         click.echo(f"Last rules extraction: {rules_meta['last_run'][:16]}")
         click.echo(f"Sessions processed: {len(rules_meta.get('sessions_included', []))}")
-
-    click.echo()
-
-    # License status
-    license_status = get_license_status()
-    if license_status["licensed"]:
-        click.echo(f"License: {license_status['key']}")
-        click.echo(f"Pro features: {', '.join(license_status['features'])}")
-    else:
-        click.echo("License: Not activated")
-        click.echo()
-        click.echo("Pro features available with license:")
-        for feature, desc in PRO_FEATURES.items():
-            click.echo(f"  - {feature}: {desc}")
-        click.echo()
-        click.echo("Get a license at https://afterpaths.dev/pro")
 
 
 def main():

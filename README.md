@@ -47,7 +47,7 @@ afterpaths log
 # Summarize a session (captures discoveries, dead ends, decisions)
 afterpaths summarize 1
 
-# Extract rules from summaries → .claude/rules/ (Pro)
+# Extract rules from summaries → .claude/rules/
 afterpaths rules
 ```
 
@@ -102,22 +102,10 @@ Each rule includes source session references so you can trace back to the origin
 | Tool | Status | Location |
 |------|--------|----------|
 | Claude Code | ✅ Ready | `~/.claude/projects/*.jsonl` |
-| Cursor | 🔜 Soon | `.cursor/rules/` export ready |
+| Cursor | ✅ Ready | `~/Library/Application Support/Cursor/User/workspaceStorage/` |
 | GitHub Copilot | 🔜 Soon | — |
 
-## Free vs Pro
-
-| Feature | Free | Pro ($5/mo) |
-|---------|------|-------------|
-| Session summaries | ✅ | ✅ |
-| Git ref linking | ✅ | ✅ |
-| Search sessions | ✅ | ✅ |
-| **Automatic rule extraction** | — | ✅ |
-| Export to .claude/rules/ | — | ✅ |
-| Export to .cursor/rules/ | — | ✅ |
-| Rule Vault (coming soon) | — | ✅ |
-
-### The Vault (Coming Soon)
+## The Vault (Coming Soon)
 
 Share and discover rule sets from the community:
 
@@ -161,7 +149,7 @@ your-project/
 - [x] Git ref linking
 - [x] Automatic rule extraction
 - [x] Multi-target export (Claude, Cursor)
-- [ ] Cursor session support
+- [x] Cursor session support
 - [ ] GitHub Copilot support
 - [ ] Rule Vault
 - [ ] Semantic search across sessions
