@@ -11,6 +11,7 @@ Afterpaths does this automatically. Every session. With full context.
 When working with Claude Code, Cursor, or Copilot:
 
 - **You repeat mistakes** — Three weeks later, you hit the same gotcha. The AI suggests the same dead end. You vaguely remember solving this before.
+- **Sessions disappear** — Claude Code auto-deletes sessions after 30 days. That breakthrough you had last month? Gone. The context that led to your architectural decision? Deleted.
 - **Rules are tedious to write** — After a painful discovery, the last thing you want to do is context-switch to writing a CLAUDE.md rule. So you don't. And the knowledge evaporates.
 - **Context gets lost** — Even when you do write rules, they're stripped of the rich context: what you tried, why it failed, the specific error messages that led you there.
 
@@ -68,7 +69,7 @@ afterpaths rules
   _Source: session 7faf6980_
 ```
 
-These rules are automatically loaded by Claude Code. Next time you're working on auth, Claude already knows what not to try.
+Claude Code automatically loads all `.md` files from `.claude/rules/` into context at session start—no configuration needed. Next time you're working on auth, Claude already knows what not to try.
 
 ## The Manual Way vs Afterpaths
 

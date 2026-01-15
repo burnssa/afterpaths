@@ -76,3 +76,10 @@ def list_all_sessions(project_filter: str | None = None) -> list[SessionInfo]:
     for adapter in get_all_adapters():
         sessions.extend(adapter.list_sessions(project_filter))
     return sorted(sessions, key=lambda x: x.modified, reverse=True)
+
+
+def get_sessions_for_cwd() -> list[SessionInfo]:
+    """Get sessions from all adapters for current working directory."""
+    import os
+
+    return list_all_sessions(project_filter=os.getcwd())

@@ -3,8 +3,8 @@
 import click
 from pathlib import Path
 
-from .sources.base import list_all_sessions, get_all_adapters
-from .sources.claude_code import get_sessions_for_cwd, ClaudeCodeAdapter
+from .sources.base import list_all_sessions, get_all_adapters, get_sessions_for_cwd
+from .sources.claude_code import ClaudeCodeAdapter
 from .storage import get_afterpaths_dir, get_meta
 
 
@@ -59,13 +59,22 @@ def log(show_all, session_type, limit):
     total_main = len([s for s in (list_all_sessions() if show_all else get_sessions_for_cwd()) if s.session_type == "main"])
     total_agent = len([s for s in (list_all_sessions() if show_all else get_sessions_for_cwd()) if s.session_type == "agent"])
 
+    # Check which sessions have afterpaths summaries
+    afterpaths_dir = get_afterpaths_dir()
+    summaries_dir = afterpaths_dir / "summaries"
+
     click.echo(f"Sessions: {total_main} main, {total_agent} agent")
     click.echo("-" * 40)
 
     for i, s in enumerate(sessions[:limit]):
-        # Show index, type badge, and session ID
+        # Check if afterpaths summary exists
+        summary_path = summaries_dir / f"{s.session_id}.md"
+        has_summary = summary_path.exists()
+
+        # Show index, type badge, summary indicator, and session ID
         type_badge = "[agent]" if s.session_type == "agent" else ""
-        click.echo(f"[{i+1}] {s.session_id[:12]}  {type_badge}")
+        summary_badge = "[summarized]" if has_summary else ""
+        click.echo(f"[{i+1}] {s.session_id[:12]}  {type_badge}{summary_badge}")
 
         # Show project (shortened) - skip if not showing all projects
         if show_all:
@@ -77,8 +86,17 @@ def log(show_all, session_type, limit):
         # Show modified time and size
         click.echo(f"    {s.modified.strftime('%Y-%m-%d %H:%M')} | {s.size/1024:.1f}KB")
 
-        # Show summary if available
-        if s.summary:
+        # Show afterpaths summary title if available, otherwise Claude's built-in summary
+        if has_summary:
+            # Extract title from afterpaths summary (first # heading)
+            summary_content = summary_path.read_text()
+            title_line = next((line for line in summary_content.split('\n') if line.startswith('# ')), None)
+            if title_line:
+                title = title_line[2:].strip()  # Remove "# " prefix
+                title_display = title[:60] + "..." if len(title) > 60 else title
+                click.echo(f"    {title_display}")
+        elif s.summary:
+            # Fall back to Claude Code's built-in summary
             summary_display = s.summary[:60] + "..." if len(s.summary) > 60 else s.summary
             click.echo(f"    {summary_display}")
 
@@ -672,28 +690,6 @@ def rules(days, rebuild, dry_run, target):
         click.echo("Rules will be automatically loaded by your AI coding assistant.")
     elif dry_run:
         click.echo("Dry run complete. Use without --dry-run to write files.")
-
-
-@cli.command()
-@click.argument("license_key")
-def activate(license_key):
-    """Activate a license key (for future premium features like Vault).
-
-    Stores your license key in the project's .env file.
-    """
-    from .licensing import activate_license, validate_license_key
-
-    if not license_key.startswith("AP-"):
-        click.echo("Invalid license key format.")
-        click.echo("License keys start with 'AP-' (e.g., AP-PRO-xxxxx)")
-        return
-
-    try:
-        activate_license(license_key)
-        click.echo(f"License activated: {license_key[:15]}...")
-        click.echo("Stored in .env file.")
-    except Exception as e:
-        click.echo(f"Failed to activate: {e}")
 
 
 @cli.command()

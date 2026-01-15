@@ -56,7 +56,7 @@ class CursorAdapter(SourceAdapter):
             if not project_name:
                 project_name = workspace_dir.name  # Fall back to hash
 
-            if project_filter and project_filter not in project_name:
+            if project_filter and project_name != project_filter:
                 continue
 
             # Check if there are any chat sessions

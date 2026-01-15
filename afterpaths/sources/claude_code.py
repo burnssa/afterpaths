@@ -30,7 +30,7 @@ class ClaudeCodeAdapter(SourceAdapter):
 
             project_name = self._decode_project_name(project_dir.name)
 
-            if project_filter and project_filter not in project_name:
+            if project_filter and project_name != project_filter:
                 continue
 
             for jsonl_file in project_dir.glob("*.jsonl"):
@@ -200,8 +200,3 @@ class ClaudeCodeAdapter(SourceAdapter):
 
         # Fallback: just replace hyphens with slashes
         return "/" + encoded_name[1:].replace("-", "/")
-
-
-def get_sessions_for_cwd() -> list[SessionInfo]:
-    """Get Claude Code sessions for current working directory."""
-    return ClaudeCodeAdapter().list_sessions(project_filter=os.getcwd())
