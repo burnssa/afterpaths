@@ -58,6 +58,11 @@ class UserInsights:
     most_productive_day: str | None
     stack: list[str]
     errors_by_model: dict[str, LLMErrorStats] = field(default_factory=dict)
+    # From platform cache (when available)
+    total_messages: int | None = None
+    total_tool_calls: int | None = None
+    tokens_by_model: dict[str, dict] | None = None  # model -> {input, output, cache_read}
+    activity_by_hour: dict[int, int] | None = None
 
 
 @dataclass
@@ -314,8 +319,23 @@ def get_insights(project_path: Path | None = None) -> Insights:
 
     stats = collect_project_stats(project_path)
 
-    # Collect error stats from sessions
+    # Collect error stats from sessions (always parse - not in platform caches)
     errors_by_model = _collect_error_stats(project_path)
+
+    # Collect cached stats from adapters (avoid re-computing)
+    cached = _get_merged_cached_stats()
+
+    # Convert token usage to serializable dict
+    tokens_by_model = None
+    if cached and cached.tokens_by_model:
+        tokens_by_model = {
+            model: {
+                "input": usage.input_tokens,
+                "output": usage.output_tokens,
+                "cache_read": usage.cache_read_tokens,
+            }
+            for model, usage in cached.tokens_by_model.items()
+        }
 
     user_insights = UserInsights(
         session_count=stats["summary_count"],
@@ -324,6 +344,11 @@ def get_insights(project_path: Path | None = None) -> Insights:
         most_productive_day=_get_most_productive_day(project_path),
         stack=stats["stack"],
         errors_by_model=errors_by_model,
+        # From platform cache
+        total_messages=cached.total_messages if cached else None,
+        total_tool_calls=cached.total_tool_calls if cached else None,
+        tokens_by_model=tokens_by_model,
+        activity_by_hour=cached.activity_by_hour if cached else None,
     )
 
     # Mock community data for Sprint 1
@@ -354,6 +379,21 @@ def get_insights(project_path: Path | None = None) -> Insights:
         community=community_insights,
         period="7d",
     )
+
+
+def _get_merged_cached_stats():
+    """Get merged cached stats from all adapters.
+
+    Returns the first non-None cached stats found. In the future,
+    this could merge stats from multiple adapters.
+    """
+    from .sources.base import CachedStats, get_all_adapters
+
+    for adapter in get_all_adapters():
+        cached = adapter.get_cached_stats()
+        if cached:
+            return cached
+    return None
 
 
 def _get_most_productive_day(project_path: Path) -> str | None:
@@ -532,6 +572,23 @@ def format_insights(insights: Insights) -> str:
     # Most productive day
     if insights.user.most_productive_day:
         lines.append(f"Your Most Productive Day: {insights.user.most_productive_day}")
+        lines.append("")
+
+    # Lifetime stats from platform cache (if available)
+    if insights.user.total_messages:
+        lines.append("Lifetime Stats (from Claude Code):")
+        lines.append(f"  Total messages: {insights.user.total_messages:,}")
+        if insights.user.tokens_by_model:
+            total_output = sum(
+                t.get("output", 0) for t in insights.user.tokens_by_model.values()
+            )
+            lines.append(f"  Total output tokens: {total_output:,}")
+        if insights.user.activity_by_hour:
+            peak_hours = sorted(
+                insights.user.activity_by_hour.items(), key=lambda x: -x[1]
+            )[:3]
+            peak_str = ", ".join(f"{h}:00" for h, _ in peak_hours)
+            lines.append(f"  Peak activity hours: {peak_str}")
         lines.append("")
 
     # Footer

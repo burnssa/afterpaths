@@ -385,6 +385,26 @@ afterpaths rules --rebuild
 
 ---
 
+## Daily Stats
+
+Afterpaths automatically shows your usage stats on first use each day:
+
+```
+╭─ Your Stats ─────────────────────────────────────────────────────────╮
+│  Yesterday                                                           │
+│    Sessions: 3   Messages: 175   Tool calls: 99                      │
+│    claude-opus-4: Rejections 0 (0.0%)  Failures 2 (2.0%)             │
+│  Last 7 Days                                                         │
+│    Sessions: 14  Messages: 3747  Tool calls: 2267                    │
+│    claude-opus-4: Rejections 14 (0.6%)  Failures 136 (6.0%)          │
+│  Stack Used: python   Platform: macOS   Peak Hours: 15:00, 10:00     │
+╰──────────────────────────────────────────────────────────────────────╯
+```
+
+For detailed explanations of rejection rates, failure rates, and other metrics, see [Understanding Your Stats](analytics.md).
+
+---
+
 ## `insights`
 
 View community insights and your usage statistics.

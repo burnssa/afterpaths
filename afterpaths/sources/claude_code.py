@@ -5,7 +5,7 @@ import os
 from datetime import datetime
 from pathlib import Path
 
-from .base import SessionEntry, SessionInfo, SourceAdapter
+from .base import CachedStats, SessionEntry, SessionInfo, SourceAdapter, TokenUsage
 
 
 class ClaudeCodeAdapter(SourceAdapter):
@@ -205,3 +205,59 @@ class ClaudeCodeAdapter(SourceAdapter):
 
         # Fallback: just replace hyphens with slashes
         return "/" + encoded_name[1:].replace("-", "/")
+
+    def get_cached_stats(self) -> CachedStats | None:
+        """Read pre-computed stats from Claude Code's stats-cache.json."""
+        stats_path = Path.home() / ".claude" / "stats-cache.json"
+
+        if not stats_path.exists():
+            return None
+
+        try:
+            data = json.loads(stats_path.read_text())
+
+            # Parse tokens by model
+            tokens_by_model = None
+            if "modelUsage" in data:
+                tokens_by_model = {}
+                for model, usage in data["modelUsage"].items():
+                    tokens_by_model[model] = TokenUsage(
+                        input_tokens=usage.get("inputTokens", 0),
+                        output_tokens=usage.get("outputTokens", 0),
+                        cache_read_tokens=usage.get("cacheReadInputTokens", 0),
+                        cache_creation_tokens=usage.get("cacheCreationInputTokens", 0),
+                    )
+
+            # Parse activity by hour
+            activity_by_hour = None
+            if "hourCounts" in data:
+                activity_by_hour = {
+                    int(hour): count
+                    for hour, count in data["hourCounts"].items()
+                }
+
+            # Parse activity by date
+            activity_by_date = None
+            if "dailyActivity" in data:
+                activity_by_date = {}
+                for entry in data["dailyActivity"]:
+                    date = entry.get("date")
+                    if date:
+                        activity_by_date[date] = {
+                            "messages": entry.get("messageCount", 0),
+                            "sessions": entry.get("sessionCount", 0),
+                            "tool_calls": entry.get("toolCallCount", 0),
+                        }
+
+            return CachedStats(
+                total_sessions=data.get("totalSessions"),
+                total_messages=data.get("totalMessages"),
+                total_tool_calls=None,  # Not directly available, sum from daily
+                tokens_by_model=tokens_by_model,
+                activity_by_hour=activity_by_hour,
+                activity_by_date=activity_by_date,
+                first_session_date=data.get("firstSessionDate"),
+            )
+
+        except (json.JSONDecodeError, KeyError, TypeError):
+            return None

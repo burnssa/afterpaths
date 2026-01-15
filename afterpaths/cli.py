@@ -24,6 +24,31 @@ def _load_env():
         load_dotenv(afterpaths_env)
 
 
+def _maybe_show_daily_stats():
+    """Show daily stats if we haven't shown them today."""
+    from .daily_stats import show_daily_stats_if_needed
+    from .config import save_analytics_decision
+
+    output = show_daily_stats_if_needed()
+    if output:
+        click.echo(output)
+        click.echo()  # Blank line before command output
+
+        # Check if opt-in teaser was shown (Day 2+)
+        if "Unlock Community Insights" in output:
+            response = click.prompt(
+                "Enable community analytics? [y/n]",
+                type=str,
+                default="n",
+            )
+            if response.lower() in ("y", "yes"):
+                save_analytics_decision(True)
+                click.echo("Analytics enabled! Run 'ap insights' to see community comparisons.\n")
+            else:
+                save_analytics_decision(False)
+                click.echo("No problem. You can enable later with 'ap analytics --enable'\n")
+
+
 def _find_session(session_ref: str, session_type: str = "main"):
     """Find a session by number (current project) or ID prefix (any project).
 
@@ -54,9 +79,14 @@ def _find_session(session_ref: str, session_type: str = "main"):
 
 
 @click.group()
-def cli():
+@click.pass_context
+def cli(ctx):
     """Afterpaths: A research log for AI-assisted work."""
     _load_env()
+
+    # Show daily stats on first use each day (skip for help/completion)
+    if ctx.invoked_subcommand is not None:
+        _maybe_show_daily_stats()
 
 
 @cli.command()

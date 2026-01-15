@@ -7,6 +7,34 @@ from pathlib import Path
 
 
 @dataclass
+class TokenUsage:
+    """Token usage for a model."""
+
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_creation_tokens: int = 0
+
+
+@dataclass
+class CachedStats:
+    """Stats that platforms may pre-compute.
+
+    Adapters can return these from get_cached_stats() if the platform
+    maintains its own stats cache. This avoids re-calculating what's
+    already been computed elsewhere.
+    """
+
+    total_sessions: int | None = None
+    total_messages: int | None = None
+    total_tool_calls: int | None = None
+    tokens_by_model: dict[str, TokenUsage] | None = None
+    activity_by_hour: dict[int, int] | None = None
+    activity_by_date: dict[str, dict] | None = None  # date -> {messages, sessions, tool_calls}
+    first_session_date: str | None = None
+
+
+@dataclass
 class SessionEntry:
     """Normalized conversation entry."""
 
@@ -58,6 +86,16 @@ class SourceAdapter(ABC):
     def is_available(cls) -> bool:
         """Check if this adapter's data source exists."""
         return True
+
+    def get_cached_stats(self) -> CachedStats | None:
+        """Return pre-computed stats if the platform maintains a cache.
+
+        Override in subclasses that have access to platform-maintained
+        stats caches (e.g., Claude Code's stats-cache.json).
+
+        Returns None if no cached stats are available.
+        """
+        return None
 
 
 def get_all_adapters() -> list[SourceAdapter]:
