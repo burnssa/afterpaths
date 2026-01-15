@@ -17,6 +17,7 @@ On first use each day, you'll see a summary like this:
 │    Sessions: 14  Messages: 3747  Tool calls: 2267                    │
 │    claude-opus-4: Rejections 14 (0.6%)  Failures 136 (6.0%)          │
 │                                                                      │
+│  IDE Used: Claude Code                                               │
 │  Stack Used: python, react                                           │
 │  Platform: macOS                                                     │
 │  Peak Hours: 15:00, 10:00, 12:00                                     │
@@ -94,6 +95,14 @@ A single session with many retries can skew daily numbers. Use the 7-day view fo
 Stats are broken down by model (e.g., `claude-opus-4`, `claude-sonnet-4`) so you can compare performance across different models you've used.
 
 ## Additional Context
+
+### IDE Used
+
+Which AI coding tools contributed to your sessions:
+- **Claude Code**: Anthropic's CLI tool
+- **Cursor**: AI-powered code editor
+
+If you use multiple tools, all will be listed. This helps contextualize stats since different tools may have different error patterns, and is useful for community comparisons.
 
 ### Stack Used
 

@@ -51,6 +51,7 @@ class DailyStatsData:
     yesterday: PeriodStats
     last_7_days: PeriodStats
     stacks_used: list[str]
+    ides_used: list[str]
     platform_os: str
     peak_hours: list[int]
 
@@ -76,6 +77,7 @@ def get_daily_stats(project_path: Path | None = None) -> DailyStatsData | None:
     last_7_days = PeriodStats()
 
     stacks_used: set[str] = set()
+    ides_used: set[str] = set()
     hours_active: dict[int, int] = {}
 
     # Detect stack for current project
@@ -105,6 +107,9 @@ def get_daily_stats(project_path: Path | None = None) -> DailyStatsData | None:
                 # Determine which periods this session belongs to
                 is_yesterday = yesterday_start <= session.modified < yesterday_end
                 is_in_7_days = True  # Already filtered above
+
+                # Track which IDE/tool was used
+                ides_used.add(adapter.name)
 
                 try:
                     entries = adapter.read_session(session)
@@ -180,6 +185,7 @@ def get_daily_stats(project_path: Path | None = None) -> DailyStatsData | None:
         yesterday=yesterday,
         last_7_days=last_7_days,
         stacks_used=sorted(stacks_used),
+        ides_used=sorted(_get_ide_display_name(ide) for ide in ides_used),
         platform_os=_get_platform_name(),
         peak_hours=peak_hours,
     )
@@ -191,6 +197,15 @@ def _get_platform_name() -> str:
     if system == "Darwin":
         return "macOS"
     return system
+
+
+def _get_ide_display_name(adapter_name: str) -> str:
+    """Get human-readable IDE/tool name."""
+    names = {
+        "claude_code": "Claude Code",
+        "cursor": "Cursor",
+    }
+    return names.get(adapter_name, adapter_name)
 
 
 def format_daily_stats(stats: DailyStatsData, box_width: int = 72) -> str:
@@ -269,10 +284,17 @@ def format_daily_stats(stats: DailyStatsData, box_width: int = 72) -> str:
         lines.append(pad_line("  No activity"))
     lines.append(pad_line(""))
 
-    # Stack Used
+    # IDE(s) Used
+    if stats.ides_used:
+        ide_str = ", ".join(stats.ides_used)
+        ide_label = "IDEs Used" if len(stats.ides_used) > 1 else "IDE Used"
+        lines.append(pad_line(f"{ide_label}: {ide_str}"))
+
+    # Stack(s) Used
     if stats.stacks_used:
         stack_str = ", ".join(stats.stacks_used[:5])
-        lines.append(pad_line(f"Stack Used: {stack_str}"))
+        stack_label = "Stacks Used" if len(stats.stacks_used) > 1 else "Stack Used"
+        lines.append(pad_line(f"{stack_label}: {stack_str}"))
 
     # Platform
     lines.append(pad_line(f"Platform: {stats.platform_os}"))

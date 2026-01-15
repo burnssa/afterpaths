@@ -397,7 +397,7 @@ Afterpaths automatically shows your usage stats on first use each day:
 │  Last 7 Days                                                         │
 │    Sessions: 14  Messages: 3747  Tool calls: 2267                    │
 │    claude-opus-4: Rejections 14 (0.6%)  Failures 136 (6.0%)          │
-│  Stack Used: python   Platform: macOS   Peak Hours: 15:00, 10:00     │
+│  IDE Used: Claude Code   Stack Used: python   Platform: macOS        │
 ╰──────────────────────────────────────────────────────────────────────╯
 ```
 
