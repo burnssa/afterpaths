@@ -24,6 +24,35 @@ def _load_env():
         load_dotenv(afterpaths_env)
 
 
+def _find_session(session_ref: str, session_type: str = "main"):
+    """Find a session by number (current project) or ID prefix (any project).
+
+    Numbers reference current project sessions only.
+    ID prefixes search all sessions across all projects.
+    """
+    # Get current project sessions for number lookup
+    cwd_sessions = get_sessions_for_cwd()
+    if session_type != "all":
+        cwd_sessions = [s for s in cwd_sessions if s.session_type == session_type]
+
+    # Try to interpret as number first (current project only)
+    try:
+        idx = int(session_ref)
+        if 1 <= idx <= len(cwd_sessions):
+            return cwd_sessions[idx - 1]
+        # Number out of range for current project
+        return None
+    except ValueError:
+        pass
+
+    # Try to match by session ID prefix (search ALL sessions)
+    all_sessions = list_all_sessions()
+    if session_type != "all":
+        all_sessions = [s for s in all_sessions if s.session_type == session_type]
+
+    return next((s for s in all_sessions if s.session_id.startswith(session_ref)), None)
+
+
 @click.group()
 def cli():
     """Afterpaths: A research log for AI-assisted work."""
@@ -40,24 +69,32 @@ def log(show_all, session_type, limit):
 
     By default, only shows main sessions (full conversations).
     Use --type=agent to see sub-agent sessions, or --type=all for everything.
-    """
-    sessions = list_all_sessions() if show_all else get_sessions_for_cwd()
 
-    if not sessions:
+    With --all, sessions from other projects are shown for context but only
+    current project sessions are numbered. Use session IDs to access others.
+    """
+    cwd_sessions = get_sessions_for_cwd()
+    all_sessions = list_all_sessions() if show_all else cwd_sessions
+
+    if not all_sessions:
         click.echo("No sessions found." + (" Try --all to see all projects." if not show_all else ""))
         return
 
     # Filter by session type
     if session_type != "all":
-        sessions = [s for s in sessions if s.session_type == session_type]
+        all_sessions = [s for s in all_sessions if s.session_type == session_type]
+        cwd_sessions = [s for s in cwd_sessions if s.session_type == session_type]
 
-    if not sessions:
+    if not all_sessions:
         click.echo(f"No {session_type} sessions found. Try --type=all to see all session types.")
         return
 
+    # Build set of current project session IDs for quick lookup
+    cwd_session_ids = {s.session_id for s in cwd_sessions}
+
     # Count totals for display
-    total_main = len([s for s in (list_all_sessions() if show_all else get_sessions_for_cwd()) if s.session_type == "main"])
-    total_agent = len([s for s in (list_all_sessions() if show_all else get_sessions_for_cwd()) if s.session_type == "agent"])
+    total_main = len([s for s in (list_all_sessions() if show_all else cwd_sessions) if s.session_type == "main"])
+    total_agent = len([s for s in (list_all_sessions() if show_all else cwd_sessions) if s.session_type == "agent"])
 
     # Check which sessions have afterpaths summaries
     afterpaths_dir = get_afterpaths_dir()
@@ -66,7 +103,10 @@ def log(show_all, session_type, limit):
     click.echo(f"Sessions: {total_main} main, {total_agent} agent")
     click.echo("-" * 40)
 
-    for i, s in enumerate(sessions[:limit]):
+    # Track numbering for current project sessions only
+    cwd_index = 0
+
+    for s in all_sessions[:limit]:
         # Check if afterpaths summary exists
         summary_path = summaries_dir / f"{s.session_id}.md"
         has_summary = summary_path.exists()
@@ -74,10 +114,18 @@ def log(show_all, session_type, limit):
         # Show index, type badge, summary indicator, and session ID
         type_badge = "[agent]" if s.session_type == "agent" else ""
         summary_badge = "[summarized]" if has_summary else ""
-        click.echo(f"[{i+1}] {s.session_id[:12]}  {type_badge}{summary_badge}")
 
-        # Show project (shortened) - skip if not showing all projects
-        if show_all:
+        # Only number sessions from current project
+        is_cwd_session = s.session_id in cwd_session_ids
+        if is_cwd_session:
+            cwd_index += 1
+            click.echo(f"[{cwd_index}] {s.session_id[:12]}  {type_badge}{summary_badge}")
+        else:
+            # No number for other projects - show ID only with indent to align
+            click.echo(f"    {s.session_id[:12]}  {type_badge}{summary_badge}")
+
+        # Show project (shortened) - always show for non-cwd sessions, optional for cwd
+        if show_all and not is_cwd_session:
             project_display = s.project
             if len(project_display) > 50:
                 project_display = "..." + project_display[-47:]
@@ -113,27 +161,9 @@ def show(session_ref, raw, session_type, limit):
     """Show session summary or transcript.
 
     SESSION_REF can be a session number (from 'log' output) or a session ID prefix.
+    Numbers reference current project sessions; use ID prefix for other projects.
     """
-    sessions = get_sessions_for_cwd() or list_all_sessions()
-
-    if not sessions:
-        click.echo("No sessions found.")
-        return
-
-    # Apply same type filter as log command for consistent numbering
-    if session_type != "all":
-        sessions = [s for s in sessions if s.session_type == session_type]
-
-    # Try to interpret as number first
-    session = None
-    try:
-        idx = int(session_ref)
-        if 1 <= idx <= len(sessions):
-            session = sessions[idx - 1]
-    except ValueError:
-        # Try to match by session ID prefix (search all sessions for ID match)
-        all_sessions = get_sessions_for_cwd() or list_all_sessions()
-        session = next((s for s in all_sessions if s.session_id.startswith(session_ref)), None)
+    session = _find_session(session_ref, session_type)
 
     if not session:
         click.echo(f"Session not found: {session_ref}")
@@ -213,6 +243,7 @@ def summarize(session_ref, notes, session_type, force, update_mode):
     """Generate a research log summary for a session.
 
     SESSION_REF can be a session number (from 'log' output) or a session ID prefix.
+    Numbers reference current project sessions; use ID prefix for other projects.
 
     The summary focuses on discoveries, dead ends, and learnings that would help
     future work on this codebase.
@@ -235,20 +266,7 @@ def summarize(session_ref, notes, session_type, force, update_mode):
     from .git_refs import extract_all_git_refs
     from .llm import get_provider_info
 
-    sessions = get_sessions_for_cwd() or list_all_sessions()
-
-    if session_type != "all":
-        sessions = [s for s in sessions if s.session_type == session_type]
-
-    # Find session by number or ID prefix
-    session = None
-    try:
-        idx = int(session_ref)
-        if 1 <= idx <= len(sessions):
-            session = sessions[idx - 1]
-    except ValueError:
-        all_sessions = list_all_sessions()
-        session = next((s for s in all_sessions if s.session_id.startswith(session_ref)), None)
+    session = _find_session(session_ref, session_type)
 
     if not session:
         click.echo(f"Session not found: {session_ref}")
@@ -388,32 +406,17 @@ def link(git_ref, show_all):
 
 @cli.command()
 @click.argument("session_ref")
-@click.option("--all", "show_all", is_flag=True, help="Search all projects for session ID")
 @click.option("--type", "session_type", type=click.Choice(["main", "agent", "all"]), default="main",
               help="Filter by session type")
-def refs(session_ref, show_all, session_type):
+def refs(session_ref, session_type):
     """Show git refs detected in a session.
 
     SESSION_REF can be a session number or ID prefix.
-    Use --all to search across all projects when using a session ID.
+    Numbers reference current project sessions; use ID prefix for other projects.
     """
     from .git_refs import extract_all_git_refs
 
-    sessions = list_all_sessions() if show_all else (get_sessions_for_cwd() or list_all_sessions())
-
-    if session_type != "all":
-        sessions = [s for s in sessions if s.session_type == session_type]
-
-    # Find session
-    session = None
-    try:
-        idx = int(session_ref)
-        if 1 <= idx <= len(sessions):
-            session = sessions[idx - 1]
-    except ValueError:
-        # Search all sessions for ID prefix match
-        all_sessions = list_all_sessions()
-        session = next((s for s in all_sessions if s.session_id.startswith(session_ref)), None)
+    session = _find_session(session_ref, session_type)
 
     if not session:
         click.echo(f"Session not found: {session_ref}")
@@ -548,24 +551,14 @@ def trace(commit_ref, show_all, days, limit):
 def files(session_ref, session_type):
     """Show files modified in a session.
 
+    SESSION_REF can be a session number or ID prefix.
+    Numbers reference current project sessions; use ID prefix for other projects.
+
     Useful for understanding what changes a session made before tracing commits.
     """
     from .file_tracking import extract_file_activity
 
-    sessions = get_sessions_for_cwd() or list_all_sessions()
-
-    if session_type != "all":
-        sessions = [s for s in sessions if s.session_type == session_type]
-
-    # Find session
-    session = None
-    try:
-        idx = int(session_ref)
-        if 1 <= idx <= len(sessions):
-            session = sessions[idx - 1]
-    except ValueError:
-        all_sessions = list_all_sessions()
-        session = next((s for s in all_sessions if s.session_id.startswith(session_ref)), None)
+    session = _find_session(session_ref, session_type)
 
     if not session:
         click.echo(f"Session not found: {session_ref}")
@@ -702,32 +695,14 @@ def path(session_ref, session_type):
     Useful for inspecting raw session content with your own tools (cat, jq, less, etc.).
 
     SESSION_REF can be a session number (from 'log' output) or a session ID prefix.
+    Numbers reference current project sessions; use ID prefix for other projects.
 
     Examples:
         afterpaths path 1
         afterpaths path 1 | xargs cat | jq .
         cat $(afterpaths path 1) | jq '.[] | select(.type == "user")'
     """
-    sessions = get_sessions_for_cwd() or list_all_sessions()
-
-    if not sessions:
-        click.echo("No sessions found.", err=True)
-        return
-
-    # Apply same type filter as log command for consistent numbering
-    if session_type != "all":
-        sessions = [s for s in sessions if s.session_type == session_type]
-
-    # Try to interpret as number first
-    session = None
-    try:
-        idx = int(session_ref)
-        if 1 <= idx <= len(sessions):
-            session = sessions[idx - 1]
-    except ValueError:
-        # Try to match by session ID prefix (search all sessions for ID match)
-        all_sessions = get_sessions_for_cwd() or list_all_sessions()
-        session = next((s for s in all_sessions if s.session_id.startswith(session_ref)), None)
+    session = _find_session(session_ref, session_type)
 
     if not session:
         click.echo(f"Session not found: {session_ref}", err=True)

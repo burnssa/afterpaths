@@ -52,6 +52,8 @@ afterpaths summarize 1
 afterpaths rules
 ```
 
+See [docs/commands.md](docs/commands.md) for the full command reference and recipes.
+
 ## From Session to Rules
 
 **A 2-hour debugging session becomes:**
