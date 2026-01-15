@@ -24,6 +24,7 @@ all = [
 
 [project.scripts]
 afterpaths = "afterpaths.cli:main"
+ap = "afterpaths.cli:main"  # Short alias for easier typing
 
 [build-system]
 requires = ["hatchling"]

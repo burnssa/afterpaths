@@ -43,14 +43,16 @@ pip install afterpaths
 export ANTHROPIC_API_KEY="sk-ant-..."
 
 # See your recent Claude Code sessions
-afterpaths log
+ap log
 
 # Summarize a session (captures discoveries, dead ends, decisions)
-afterpaths summarize 1
+ap summarize 1
 
 # Extract rules from summaries → .claude/rules/
-afterpaths rules
+ap rules
 ```
+
+> **Tip:** `ap` is the short alias for `afterpaths`. Both work identically.
 
 See [docs/commands.md](docs/commands.md) for the full command reference and recipes.
 
@@ -84,8 +86,8 @@ Claude Code automatically loads all `.md` files from `.claude/rules/` into conte
 
 **With Afterpaths:**
 1. Discover painful gotcha after 2 hours
-2. Run `afterpaths summarize 1` (30 seconds)
-3. Run `afterpaths rules` (extracts learnings automatically)
+2. Run `ap summarize 1` (30 seconds)
+3. Run `ap rules` (extracts learnings automatically)
 4. Rule exists in `.claude/rules/gotchas.md`
 5. Claude warns you before you go down that path again
 

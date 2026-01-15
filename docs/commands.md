@@ -2,6 +2,20 @@
 
 Complete reference for all afterpaths commands, with tips and recipes.
 
+## Short Alias
+
+**Use `ap` instead of `afterpaths`** for faster typing:
+
+```bash
+ap log           # instead of afterpaths log
+ap show 1        # instead of afterpaths show 1
+ap summarize 1   # instead of afterpaths summarize 1
+```
+
+Both `ap` and `afterpaths` work identically. Examples below use both interchangeably.
+
+---
+
 ## Quick Reference
 
 | Command | Purpose |
@@ -39,16 +53,16 @@ afterpaths log [OPTIONS]
 **Examples:**
 ```bash
 # List sessions for current project
-afterpaths log
+ap log
 
 # Show more sessions
-afterpaths log --limit=20
+ap log --limit=20
 
 # Include agent sub-sessions (spawned by Task tool)
-afterpaths log --type=all
+ap log --type=all
 
 # See sessions across all projects (current project numbered, others show ID)
-afterpaths log --all
+ap log --all
 ```
 
 **Output explained:**
@@ -96,16 +110,16 @@ afterpaths show SESSION_REF [OPTIONS]
 **Examples:**
 ```bash
 # View summary for session 1
-afterpaths show 1
+ap show 1
 
 # View raw transcript (truncated)
-afterpaths show 1 --raw
+ap show 1 --raw
 
 # Show more transcript entries
-afterpaths show 1 --raw --limit=200
+ap show 1 --raw --limit=200
 
 # Reference by session ID prefix
-afterpaths show 7faf6980
+ap show 7faf6980
 ```
 
 ---
@@ -132,16 +146,16 @@ afterpaths summarize SESSION_REF [OPTIONS]
 **Examples:**
 ```bash
 # Summarize session 1
-afterpaths summarize 1
+ap summarize 1
 
 # Add context to guide the summary
-afterpaths summarize 1 --notes="Focus on the authentication changes"
+ap summarize 1 --notes="Focus on the authentication changes"
 
 # Regenerate an existing summary
-afterpaths summarize 1 --force
+ap summarize 1 --force
 
 # Refine existing summary with additional notes
-afterpaths summarize 1 --update --notes="Add more detail on the dead ends"
+ap summarize 1 --update --notes="Add more detail on the dead ends"
 ```
 
 **Configuration:**
@@ -174,11 +188,11 @@ afterpaths path SESSION_REF [OPTIONS]
 **Examples:**
 ```bash
 # Get path to session 1
-afterpaths path 1
+ap path 1
 # Output: /Users/you/.claude/projects/-Users-you-Code-myproject/abc123.jsonl
 
 # Use with other tools (see Recipes below)
-cat $(afterpaths path 1) | jq .
+cat $(ap path 1) | jq .
 ```
 
 ---
@@ -481,43 +495,43 @@ The `path` command outputs just the file path, making it easy to compose with ot
 
 ```bash
 # Pretty-print entire session as JSON
-cat $(afterpaths path 1) | jq .
+cat $(ap path 1) | jq .
 
 # View in a pager
-less $(afterpaths path 1)
+less $(ap path 1)
 
 # Count entries by type
-cat $(afterpaths path 1) | jq -s 'group_by(.type) | map({type: .[0].type, count: length})'
+cat $(ap path 1) | jq -s 'group_by(.type) | map({type: .[0].type, count: length})'
 
 # Extract just user messages
-cat $(afterpaths path 1) | jq 'select(.type == "user") | .content'
+cat $(ap path 1) | jq 'select(.type == "user") | .content'
 
 # Find all tool uses
-cat $(afterpaths path 1) | jq 'select(.type == "assistant" and .tool_use) | .tool_use.name'
+cat $(ap path 1) | jq 'select(.type == "assistant" and .tool_use) | .tool_use.name'
 
 # Get session size in lines
-wc -l $(afterpaths path 1)
+wc -l $(ap path 1)
 ```
 
 ## Finding What Session Made a Change
 
 ```bash
 # What session created the last commit?
-afterpaths trace HEAD
+ap trace HEAD
 
 # What session worked on this file recently?
-afterpaths log --limit=20  # then check each with:
-afterpaths files 1 | grep "myfile.py"
+ap log --limit=20  # then check each with:
+ap files 1 | grep "myfile.py"
 ```
 
 ## Bulk Operations
 
 ```bash
 # Summarize the 3 most recent sessions
-for i in 1 2 3; do afterpaths summarize $i; done
+for i in 1 2 3; do ap summarize $i; done
 
 # Export all session paths
-for i in $(seq 1 10); do afterpaths path $i 2>/dev/null; done
+for i in $(seq 1 10); do ap path $i 2>/dev/null; done
 ```
 
 ## Session Numbering
@@ -525,7 +539,7 @@ for i in $(seq 1 10); do afterpaths path $i 2>/dev/null; done
 Session numbers always refer to **current project sessions only**. When using `--all`, other projects' sessions are displayed for context but aren't numbered:
 
 ```
-afterpaths log --all
+ap log --all
 
 [1] 06f238b3-254e              ← current project, use "1" or ID
     2024-01-14 10:30 | 245.3KB
@@ -540,11 +554,11 @@ afterpaths log --all
 
 ```bash
 # Access current project by number or ID:
-afterpaths show 1
-afterpaths show 06f238b3
+ap show 1
+ap show 06f238b3
 
 # Access other projects by ID only:
-afterpaths show b78227d9
+ap show b78227d9
 ```
 
 **Note:** The `--type` filter affects which sessions are numbered. Use the same `--type` flag in `log` and other commands for consistent numbering.
@@ -555,36 +569,36 @@ Agent sessions are sub-processes spawned by the Task tool. They're usually small
 
 ```bash
 # See all sessions including agents
-afterpaths log --type=all
+ap log --type=all
 
 # Show a specific agent session
-afterpaths show 5 --type=all
+ap show 5 --type=all
 ```
 
 ## Git Integration
 
 ```bash
 # Before committing: which session has context?
-afterpaths trace HEAD~0  # (no commit yet, but shows recent file matches)
+ap trace HEAD~0  # (no commit yet, but shows recent file matches)
 
 # After a PR merge: find the session that built it
 git log --oneline -5
-afterpaths trace abc1234
+ap trace abc1234
 
 # Find all sessions that touched a branch
-afterpaths link feature/my-branch --all
+ap link feature/my-branch --all
 ```
 
 ## Debugging Summarization
 
 ```bash
 # Check your LLM configuration
-afterpaths status
+ap status
 
 # Test with a small session first
-afterpaths log  # find a small one (low KB)
-afterpaths summarize 3
+ap log  # find a small one (low KB)
+ap summarize 3
 
 # Add notes if summary misses context
-afterpaths summarize 1 --update --notes="The main goal was X, focus on that"
+ap summarize 1 --update --notes="The main goal was X, focus on that"
 ```
