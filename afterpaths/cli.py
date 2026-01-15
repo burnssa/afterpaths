@@ -693,6 +693,52 @@ def rules(days, rebuild, dry_run, target):
 
 
 @cli.command()
+@click.argument("session_ref")
+@click.option("--type", "session_type", type=click.Choice(["main", "agent", "all"]), default="main",
+              help="Filter by session type")
+def path(session_ref, session_type):
+    """Print the path to a session's raw file.
+
+    Useful for inspecting raw session content with your own tools (cat, jq, less, etc.).
+
+    SESSION_REF can be a session number (from 'log' output) or a session ID prefix.
+
+    Examples:
+        afterpaths path 1
+        afterpaths path 1 | xargs cat | jq .
+        cat $(afterpaths path 1) | jq '.[] | select(.type == "user")'
+    """
+    sessions = get_sessions_for_cwd() or list_all_sessions()
+
+    if not sessions:
+        click.echo("No sessions found.", err=True)
+        return
+
+    # Apply same type filter as log command for consistent numbering
+    if session_type != "all":
+        sessions = [s for s in sessions if s.session_type == session_type]
+
+    # Try to interpret as number first
+    session = None
+    try:
+        idx = int(session_ref)
+        if 1 <= idx <= len(sessions):
+            session = sessions[idx - 1]
+    except ValueError:
+        # Try to match by session ID prefix (search all sessions for ID match)
+        all_sessions = get_sessions_for_cwd() or list_all_sessions()
+        session = next((s for s in all_sessions if s.session_id.startswith(session_ref)), None)
+
+    if not session:
+        click.echo(f"Session not found: {session_ref}", err=True)
+        click.echo("Use 'afterpaths log' to see available sessions.", err=True)
+        return
+
+    # Print just the path (no newline issues, easy to use with xargs/subshell)
+    click.echo(session.path)
+
+
+@cli.command()
 def status():
     """Show afterpaths status and configuration."""
     from .llm import get_provider_info
