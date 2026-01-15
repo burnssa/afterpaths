@@ -15,6 +15,8 @@ Complete reference for all afterpaths commands, with tips and recipes.
 | `link` | Find sessions that reference a git commit/branch |
 | `trace` | Find sessions that produced a commit (by file matching) |
 | `rules` | Extract rules from summaries for AI assistants |
+| `insights` | View community insights and your stats |
+| `analytics` | Manage community analytics settings |
 | `status` | Show configuration and stats |
 
 ---
@@ -369,6 +371,86 @@ afterpaths rules --rebuild
 
 ---
 
+## `insights`
+
+View community insights and your usage statistics.
+
+```bash
+afterpaths insights
+```
+
+Displays how your afterpaths usage compares to the community, including:
+- Session counts (yours vs average)
+- Rule generation stats
+- Top rule categories community-wide
+- Your most productive day
+
+**Requires analytics to be enabled** (see `analytics` command).
+
+**Example output:**
+```
+Community Insights
+----------------------------------------
+
+Your Stats (last 7d):
+  Sessions: 12 (community avg: 8.2)
+  Rules generated: 7 (community avg: 4.7)
+
+Your Stack: python + fastapi
+
+Top Rule Categories (community-wide):
+  1. Dead Ends (38%)
+  2. Gotchas (28%)
+  3. Patterns (22%)
+  4. Decisions (12%)
+
+Your Most Productive Day: Tuesday
+
+----------------------------------------
+Based on 127 afterpaths users
+```
+
+---
+
+## `analytics`
+
+Manage community analytics settings.
+
+```bash
+afterpaths analytics [OPTIONS]
+```
+
+**Options:**
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--enable` | - | Enable community analytics |
+| `--disable` | - | Disable community analytics |
+
+**Examples:**
+```bash
+# Check current status
+afterpaths analytics
+
+# Enable analytics (share stats, get insights)
+afterpaths analytics --enable
+
+# Disable analytics
+afterpaths analytics --disable
+```
+
+**What gets shared when enabled:**
+- Session counts and duration buckets
+- Rule counts by category (dead-ends, patterns, gotchas, decisions)
+- Tech stack (detected from project files)
+
+**What is NOT shared:**
+- Code or file contents
+- Rule text or details
+- Project names or paths
+- Any identifying information
+
+---
+
 ## `status`
 
 Show afterpaths configuration and statistics.
@@ -385,6 +467,8 @@ LLM Provider: anthropic/claude-sonnet-4-5-20250929
 Summaries: 12 saved
 Last rules extraction: 2024-01-14 10:30
 Sessions processed: 8
+Analytics: enabled
+Detected Stack: python, fastapi
 ```
 
 ---

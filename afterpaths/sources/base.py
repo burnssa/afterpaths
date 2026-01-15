@@ -15,6 +15,8 @@ class SessionEntry:
     timestamp: str | None = None
     tool_name: str | None = None
     tool_input: dict | None = None
+    is_error: bool = False  # True if tool result was an error/rejection
+    model: str | None = None  # LLM model used (for assistant entries)
 
 
 @dataclass

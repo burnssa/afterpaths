@@ -77,6 +77,7 @@ class ClaudeCodeAdapter(SourceAdapter):
         entry_type = raw.get("type")
         timestamp = raw.get("timestamp")
         message = raw.get("message", {})
+        model = message.get("model")  # LLM model for assistant entries
 
         if entry_type == "user":
             content = message.get("content", "")
@@ -96,11 +97,13 @@ class ClaudeCodeAdapter(SourceAdapter):
                                     for b in tool_content
                                     if isinstance(b, dict)
                                 )
+                            is_error = block.get("is_error", False)
                             entries.append(
                                 SessionEntry(
                                     role="tool_result",
                                     content=str(tool_content),
                                     timestamp=timestamp,
+                                    is_error=is_error,
                                 )
                             )
                         elif block.get("type") == "text":
@@ -128,6 +131,7 @@ class ClaudeCodeAdapter(SourceAdapter):
                                         role="assistant",
                                         content=text,
                                         timestamp=timestamp,
+                                        model=model,
                                     )
                                 )
 
@@ -139,6 +143,7 @@ class ClaudeCodeAdapter(SourceAdapter):
                                     timestamp=timestamp,
                                     tool_name=block.get("name"),
                                     tool_input=block.get("input"),
+                                    model=model,
                                 )
                             )
 

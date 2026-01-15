@@ -346,6 +346,34 @@ def summarize(session_ref, notes, session_type, force, update_mode):
     click.echo("-" * 60)
     click.echo(result.content)
 
+    # Check for analytics opt-in (only prompt once)
+    _maybe_prompt_analytics_optin()
+
+
+def _maybe_prompt_analytics_optin():
+    """Prompt for analytics opt-in if user hasn't decided yet."""
+    from .config import has_analytics_decision, save_analytics_decision
+
+    if has_analytics_decision():
+        return
+
+    click.echo()
+    click.echo("Help improve afterpaths for everyone!")
+    click.echo("Share anonymized usage stats and get community insights.")
+    click.echo("We collect: session counts, rule counts by category, tech stack.")
+    click.echo("We DON'T collect: code, file contents, or rule text.")
+    click.echo()
+
+    opted_in = click.confirm("Enable community analytics?", default=True)
+    save_analytics_decision(opted_in)
+
+    if opted_in:
+        click.echo()
+        click.echo("Thanks! Run 'afterpaths insights' to see community stats.")
+    else:
+        click.echo()
+        click.echo("No problem. You can enable later with 'afterpaths analytics --enable'.")
+
 
 @cli.command()
 @click.argument("git_ref")
@@ -714,10 +742,91 @@ def path(session_ref, session_type):
 
 
 @cli.command()
+def insights():
+    """Show community insights and your usage stats.
+
+    Displays how your afterpaths usage compares to the community,
+    including session counts, rule generation, and patterns.
+
+    Requires analytics to be enabled. Enable with:
+        afterpaths analytics --enable
+    """
+    from .config import is_analytics_enabled
+    from .analytics import get_insights, format_insights
+
+    if not is_analytics_enabled():
+        click.echo("Analytics is not enabled.")
+        click.echo()
+        click.echo("Enable analytics to see community insights:")
+        click.echo("  afterpaths analytics --enable")
+        return
+
+    insights_data = get_insights(Path.cwd())
+    click.echo(format_insights(insights_data))
+
+
+@cli.command()
+@click.option("--enable", is_flag=True, help="Enable community analytics")
+@click.option("--disable", is_flag=True, help="Disable community analytics")
+def analytics(enable, disable):
+    """Manage community analytics settings.
+
+    When enabled, afterpaths shares anonymized usage stats:
+    - Session counts and duration
+    - Rule counts by category
+    - Tech stack (detected from project files)
+
+    In return, you get community insights via 'afterpaths insights'.
+
+    We DON'T collect: code, file contents, rule text, or project names.
+    """
+    from .config import (
+        is_analytics_enabled,
+        enable_analytics,
+        disable_analytics,
+        has_analytics_decision,
+    )
+
+    if enable and disable:
+        click.echo("Cannot use both --enable and --disable")
+        return
+
+    if enable:
+        enable_analytics()
+        click.echo("Analytics enabled.")
+        click.echo("Run 'afterpaths insights' to see community stats.")
+        return
+
+    if disable:
+        disable_analytics()
+        click.echo("Analytics disabled.")
+        click.echo("Your data is no longer shared.")
+        return
+
+    # No flags - show current status
+    if not has_analytics_decision():
+        click.echo("Analytics: not configured")
+        click.echo()
+        click.echo("Enable with: afterpaths analytics --enable")
+        click.echo("This shares anonymized stats and gives you community insights.")
+    elif is_analytics_enabled():
+        click.echo("Analytics: enabled")
+        click.echo()
+        click.echo("Run 'afterpaths insights' to see community stats.")
+        click.echo("Disable with: afterpaths analytics --disable")
+    else:
+        click.echo("Analytics: disabled")
+        click.echo()
+        click.echo("Enable with: afterpaths analytics --enable")
+
+
+@cli.command()
 def status():
     """Show afterpaths status and configuration."""
     from .llm import get_provider_info
     from .storage import get_afterpaths_dir, get_meta
+    from .config import is_analytics_enabled, has_analytics_decision
+    from .stack import detect_stack
 
     click.echo("Afterpaths Status")
     click.echo("-" * 40)
@@ -737,6 +846,18 @@ def status():
     if rules_meta.get("last_run"):
         click.echo(f"Last rules extraction: {rules_meta['last_run'][:16]}")
         click.echo(f"Sessions processed: {len(rules_meta.get('sessions_included', []))}")
+
+    # Analytics status
+    if has_analytics_decision():
+        analytics_status = "enabled" if is_analytics_enabled() else "disabled"
+    else:
+        analytics_status = "not configured"
+    click.echo(f"Analytics: {analytics_status}")
+
+    # Tech stack
+    stack = detect_stack(Path.cwd())
+    if stack:
+        click.echo(f"Detected Stack: {', '.join(stack)}")
 
 
 def main():
