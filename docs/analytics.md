@@ -100,9 +100,10 @@ Stats are broken down by model (e.g., `claude-opus-4`, `claude-sonnet-4`) so you
 
 Which AI coding tools contributed to your sessions:
 - **Claude Code**: Anthropic's CLI tool
+- **Codex CLI**: OpenAI's terminal agent
 - **Cursor**: AI-powered code editor
 
-If you use multiple tools, all will be listed. This helps contextualize stats since different tools may have different error patterns, and is useful for community comparisons.
+If you use multiple tools, all will be listed (e.g., "IDEs Used: Claude Code, Codex CLI"). This helps contextualize stats since different tools may have different error patterns, and is useful for community comparisons.
 
 ### Stack Used
 

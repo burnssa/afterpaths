@@ -203,6 +203,7 @@ def _get_ide_display_name(adapter_name: str) -> str:
     """Get human-readable IDE/tool name."""
     names = {
         "claude_code": "Claude Code",
+        "codex": "Codex CLI",
         "cursor": "Cursor",
     }
     return names.get(adapter_name, adapter_name)

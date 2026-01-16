@@ -94,7 +94,8 @@ def cli(ctx):
 @click.option("--type", "session_type", type=click.Choice(["main", "agent", "all"]), default="main",
               help="Filter by session type (default: main)")
 @click.option("--limit", default=10, help="Number of sessions to show")
-def log(show_all, session_type, limit):
+@click.option("-v", "--verbose", is_flag=True, help="Show additional info (model used)")
+def log(show_all, session_type, limit, verbose):
     """List recent AI coding sessions.
 
     By default, only shows main sessions (full conversations).
@@ -153,6 +154,15 @@ def log(show_all, session_type, limit):
         else:
             # No number for other projects - show ID only with indent to align
             click.echo(f"    {s.session_id[:12]}  {type_badge}{summary_badge}")
+
+        # Show model info if verbose
+        if verbose:
+            from .analytics import _normalize_model_name
+            adapter = _get_adapter_for_session(s)
+            entries = adapter.read_session(s)
+            models = sorted({_normalize_model_name(e.model) for e in entries if e.model})
+            if models:
+                click.echo(f"    Model: {', '.join(models)}")
 
         # Show project (shortened) - always show for non-cwd sessions, optional for cwd
         if show_all and not is_cwd_session:
@@ -217,14 +227,20 @@ def _get_adapter_for_session(session):
 def _show_raw_transcript(session, limit):
     """Display raw transcript entries."""
     from .git_refs import extract_all_git_refs, format_refs_for_display
+    from .analytics import _normalize_model_name
 
     adapter = _get_adapter_for_session(session)
     entries = adapter.read_session(session)
     refs = extract_all_git_refs(entries)
+    models = sorted(
+        {_normalize_model_name(entry.model) for entry in entries if entry.model}
+    )
 
     click.echo(f"Session: {session.session_id}")
     click.echo(f"Project: {session.project}")
     click.echo(f"Entries: {len(entries)}")
+    if models:
+        click.echo(f"Models: {', '.join(models)}")
     click.echo(f"Git refs: {format_refs_for_display(refs)}")
     click.echo("-" * 60)
 
@@ -232,6 +248,8 @@ def _show_raw_transcript(session, limit):
         role_display = entry.role.upper()
         if entry.tool_name:
             role_display = f"TOOL:{entry.tool_name}"
+        if entry.model:
+            role_display = f"{role_display}:{_normalize_model_name(entry.model)}"
 
         # Truncate content for display
         content = entry.content

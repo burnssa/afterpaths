@@ -101,10 +101,11 @@ class SourceAdapter(ABC):
 def get_all_adapters() -> list[SourceAdapter]:
     """Get all available source adapters."""
     from .claude_code import ClaudeCodeAdapter
+    from .codex import CodexAdapter
     from .cursor import CursorAdapter
 
     adapters = []
-    for adapter_class in [ClaudeCodeAdapter, CursorAdapter]:
+    for adapter_class in [ClaudeCodeAdapter, CodexAdapter, CursorAdapter]:
         if adapter_class.is_available():
             adapters.append(adapter_class())
     return adapters
