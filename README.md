@@ -1,21 +1,21 @@
 # Afterpaths
 
-**Turn painful debugging sessions into permanent wisdom.**
+**A unified management layer for your AI coding agents.**
 
-You just spent 2 hours discovering that JWT refresh tokens need a mutex lock. Now you have to manually write a CLAUDE.md rule so Claude doesn't lead you down that path again. You open the file, try to remember the exact context, write something half as good as what you'd get if you captured it in the moment...
+You're running Claude Code, Cursor and Codex, but which model actually works best for your stack? What approaches lead to breakthroughs vs. expensive dead ends? How do you stop your agents from making the same mistakes?
 
-Afterpaths does this automatically. Every session. With full context.
+Afterpaths gives you a single view across all your AI coding tools: compare what's working, capture discoveries as rules, and guide your agent team away from costly diversions.
 
 ## The Problem
 
-When working with Claude Code, Cursor, or Copilot:
+You're managing a team of AI coding agents, but flying blind:
 
-- **You repeat mistakes** — Three weeks later, you hit the same gotcha. The AI suggests the same dead end. You vaguely remember solving this before.
-- **Sessions disappear** — Claude Code auto-deletes sessions after 30 days. That breakthrough you had last month? Gone. The context that led to your architectural decision? Deleted.
-- **Rules are tedious to write** — After a painful discovery, the last thing you want to do is context-switch to writing a CLAUDE.md rule. So you don't. And the knowledge evaporates.
-- **Context gets lost** — Even when you do write rules, they're stripped of the rich context: what you tried, why it failed, the specific error messages that led you there.
+- **Repeated mistakes** — Your agents hit the same gotchas. Three weeks later, same dead end, same wasted tokens.
+- **No cross-tool visibility** — Is Opus actually better than Sonnet for your codebase? Is Cursor outperforming Claude Code? You're guessing.
+- **Rules are tedious** — After a costly diversion, the last thing you want is to write a CLAUDE.md rule. So you don't. And the knowledge evaporates.
+- **Sessions vanish** — Session content is obscurely logged and hard to extract. Then it's often auto-deleted after 30 days. That breakthrough architecture decision? Context gone.
 
-Afterpaths captures your sessions, extracts the learnings, and generates rules automatically—with all the context intact.
+Afterpaths captures sessions across tools, surfaces what's working, and generates rules automatically—so your agents learn from every session, and you retain all your rich session context.
 
 ## How It Works
 
@@ -23,14 +23,13 @@ Afterpaths captures your sessions, extracts the learnings, and generates rules a
 Your Sessions                      Afterpaths
 ───────────────                    ────────────────────────────────────
 
-Claude Code  ──► afterpaths ──► Session summaries (what happened)
-Cursor            summarize          │
-Copilot                              ▼
-                 afterpaths ──► Rule files (what to remember)
-                    rules           │
+Claude Code  ──► ap log      ──► Browse sessions across IDEs
+Cursor           ap stats    ──► Analytics: tokens, activity, errors
+Codex            ap summarize──► Session summaries (what happened)
+                 ap rules    ──► Rule files (what to remember)
+                                    │
                                     ▼
-                              .claude/rules/
-                              .cursor/rules/
+                           .claude/rules/ · .cursor/rules/
                                     │
                                     ▼
                            Your next session is smarter
@@ -42,8 +41,12 @@ Copilot                              ▼
 pip install afterpaths
 export ANTHROPIC_API_KEY="sk-ant-..."
 
-# See your recent Claude Code sessions
+# See your recent sessions (Claude Code + Cursor)
 ap log
+
+# Get analytics: tokens, sessions, rejection rates
+ap stats
+ap stats --daily
 
 # Summarize a session (captures discoveries, dead ends, decisions)
 ap summarize 1
@@ -58,38 +61,33 @@ See [docs/commands.md](docs/commands.md) for the full command reference and reci
 
 ## From Session to Rules
 
-**A 2-hour debugging session becomes:**
+**A 2-day auth outage becomes a rule that prevents the next one:**
 
 ```markdown
 # Dead Ends: What Not to Try
 
-- **JWT rotation race condition**: Don't use JWT rotation with mobile
-  clients—concurrent refresh requests cause race conditions. Use mutex
-  locking on the refresh endpoint instead.
-  _Source: session 7faf6980_
+- **Restrictive Auth0 callback detection**: Don't require both 'code' AND
+  'state' URL parameters—Auth0 sometimes omits 'state'. This exact pattern
+  caused a 2-day production outage. Use `urlParams.has('code')` alone.
+  _Source: session 8a3f2c91_
 
-- **In-memory token cache**: Avoid in-memory caching for auth tokens
-  in distributed deployments. Requests hit different instances.
-  _Source: session 7faf6980_
+- **Silent callback error handling**: Don't catch Auth0 callback errors and
+  redirect to home. Users end up in login loops. Implement error-specific
+  recovery logic instead.
+  _Source: session 8a3f2c91_
 ```
 
-Claude Code automatically loads all `.md` files from `.claude/rules/` into context at session start—no configuration needed. Next time you're working on auth, Claude already knows what not to try.
+Claude Code automatically loads all `.md` files from `.claude/rules/` into context. Next time you're working on auth, Claude already knows what not to try.
 
-## The Manual Way vs Afterpaths
+## Why Afterpaths
 
-**Without Afterpaths:**
-1. Discover painful gotcha after 2 hours
-2. Think "I should add this to CLAUDE.md"
-3. Get distracted by the actual fix
-4. Forget to write the rule
-5. Hit the same issue in 3 weeks
-
-**With Afterpaths:**
-1. Discover painful gotcha after 2 hours
-2. Run `ap summarize 1` (30 seconds)
-3. Run `ap rules` (extracts learnings automatically)
-4. Rule exists in `.claude/rules/gotchas.md`
-5. Claude warns you before you go down that path again
+| Without | With Afterpaths |
+|---------|-----------------|
+| Discover gotcha, forget to document it | `ap summarize` captures it with full context |
+| Hit the same issue 3 weeks later | Rule in `.claude/rules/` prevents it |
+| No idea what's working | `ap stats` shows tokens, sessions, error rates |
+| Sessions scattered across IDEs | `ap log` unified view across Claude + Cursor |
+| Learnings siloed per tool | Rules sync to `.claude/rules/` and `.cursor/rules/` |
 
 ## What Gets Extracted
 
@@ -108,7 +106,7 @@ Each rule includes source session references so you can trace back to the origin
 |------|--------|----------|
 | Claude Code | ✅ Ready | `~/.claude/projects/*.jsonl` |
 | Cursor | ✅ Ready | `~/Library/Application Support/Cursor/User/workspaceStorage/` |
-| GitHub Copilot | 🔜 Soon | — |
+| Codex CLI | ✅ Ready | `~/.codex/` |
 
 ## The Vault (Coming Soon)
 
@@ -150,14 +148,15 @@ your-project/
 ## Roadmap
 
 - [x] Claude Code session parsing
+- [x] Cursor session support
+- [x] Session analytics (tokens, errors, daily trends)
 - [x] LLM summarization
-- [x] Git ref linking
 - [x] Automatic rule extraction
 - [x] Multi-target export (Claude, Cursor)
-- [x] Cursor session support
-- [ ] GitHub Copilot support
-- [ ] Rule Vault
+- [x] Codex CLI support
+- [ ] Rule Vault (community rule sharing)
 - [ ] Semantic search across sessions
+- [ ] Benchmarking and productivity insights
 
 ## License
 
@@ -165,4 +164,4 @@ MIT
 
 ---
 
-*Stop losing hard-won knowledge. Let your past sessions guide your future ones.*
+*Manage your AI coding agents. Learn what works. Stop repeating mistakes.*
