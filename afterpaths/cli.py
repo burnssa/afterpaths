@@ -28,6 +28,13 @@ def _maybe_show_daily_stats():
     """Show daily stats if we haven't shown them today."""
     from .daily_stats import show_daily_stats_if_needed
     from .config import save_analytics_decision
+    from .local_analytics import collect_and_record_today
+
+    # Record today's stats to local analytics (silently)
+    try:
+        collect_and_record_today()
+    except Exception:
+        pass  # Don't let analytics failures break CLI
 
     output = show_daily_stats_if_needed()
     if output:
@@ -866,6 +873,150 @@ def analytics(enable, disable):
         click.echo("Analytics: disabled")
         click.echo()
         click.echo("Enable with: afterpaths analytics --enable")
+
+
+@cli.command()
+@click.option("--daily", is_flag=True, help="Show day-by-day breakdown")
+@click.option("--days", default=7, help="Number of days to show (default: 7)")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+def stats(daily, days, as_json):
+    """Show your local usage analytics.
+
+    Displays sessions, messages, tool calls, and model performance
+    from your locally stored analytics data.
+
+    Examples:
+        ap stats              # Last 7 days summary
+        ap stats --daily      # Day-by-day breakdown
+        ap stats --days 30    # Last 30 days
+        ap stats --json       # Export as JSON
+    """
+    from .local_analytics import (
+        get_period_stats,
+        get_recent_snapshots,
+        get_lifetime_stats,
+        collect_and_record_today,
+        backfill_analytics,
+        load_analytics,
+    )
+    import json as json_module
+
+    # Check if we need to backfill (if we have very little historical data)
+    data = load_analytics()
+    snapshots = data.get("snapshots", [])
+    if len(snapshots) < 3:  # Less than 3 days of data
+        click.echo("Importing analytics from session history...")
+        backfilled = backfill_analytics(days=30)
+        if backfilled > 0:
+            click.echo(f"Imported {backfilled} days of historical data.\n")
+
+    # Ensure we have latest data
+    collect_and_record_today()
+
+    if as_json:
+        # JSON export for later sharing
+        snapshots = get_recent_snapshots(days)
+        lifetime = get_lifetime_stats()
+        data = {
+            "period_days": days,
+            "snapshots": [s.to_dict() for s in snapshots],
+            "lifetime": lifetime.to_dict(),
+        }
+        click.echo(json_module.dumps(data, indent=2))
+        return
+
+    if daily:
+        # Day-by-day breakdown
+        snapshots = get_recent_snapshots(days)
+        if not snapshots:
+            click.echo("No analytics data yet. Use afterpaths for a day to see stats.")
+            return
+
+        click.echo(f"Daily Stats (last {days} days)")
+        click.echo("=" * 60)
+        click.echo()
+
+        for s in reversed(snapshots):  # Most recent first
+            rej_rate = f"{s.rejection_rate:.1f}%" if s.tool_calls > 0 else "-"
+            fail_rate = f"{s.failure_rate:.1f}%" if s.tool_calls > 0 else "-"
+
+            click.echo(f"{s.date}")
+            click.echo(f"  Sessions: {s.sessions:<4} Messages: {s.messages:<5} Tool calls: {s.tool_calls}")
+            click.echo(f"  Rejections: {s.rejections} ({rej_rate})  Failures: {s.failures} ({fail_rate})")
+
+            if s.model_stats:
+                models = ", ".join(s.model_stats.keys())
+                click.echo(f"  Models: {models}")
+
+            click.echo()
+    else:
+        # Summary view
+        period = get_period_stats(days)
+        lifetime = get_lifetime_stats()
+
+        click.echo(_format_stats_display(period, lifetime, days))
+
+
+def _format_stats_display(period: dict, lifetime, days: int) -> str:
+    """Format stats for terminal display."""
+    lines = []
+    box_width = 64
+    inner = box_width - 4
+
+    def pad(text: str) -> str:
+        return f"│ {text:<{inner}} │"
+
+    # Header
+    lines.append(f"╭─ Your Analytics {'─' * (box_width - 19)}╮")
+    lines.append(pad(""))
+
+    # Period stats
+    lines.append(pad(f"Last {days} Days ({period['days_active']} active)"))
+    lines.append(pad(f"  Sessions: {period['sessions']:<6} Messages: {period['messages']:<6} Tool calls: {period['tool_calls']}"))
+
+    if period['tool_calls'] > 0:
+        rej = period['rejections']
+        fail = period['failures']
+        rej_rate = period['rejection_rate']
+        fail_rate = period['failure_rate']
+        lines.append(pad(f"  Rejections: {rej} ({rej_rate:.1f}%)    Failures: {fail} ({fail_rate:.1f}%)"))
+
+    # Model breakdown
+    if period['model_stats']:
+        lines.append(pad(""))
+        lines.append(pad("  By Model:"))
+        for model, stats in sorted(period['model_stats'].items()):
+            tc = stats['tool_calls']
+            rej = stats['rejections']
+            fail = stats['failures']
+            if tc > 0:
+                rej_pct = rej / tc * 100
+                fail_pct = fail / tc * 100
+                lines.append(pad(f"    {model}: {tc} calls, {rej_pct:.1f}% rej, {fail_pct:.1f}% fail"))
+
+    lines.append(pad(""))
+
+    # Lifetime stats
+    if lifetime.total_sessions > 0:
+        lines.append(pad("Lifetime"))
+        lines.append(pad(f"  Days active: {lifetime.total_days_active:<4} Total sessions: {lifetime.total_sessions}"))
+        lines.append(pad(f"  Total messages: {lifetime.total_messages:<6} Total tool calls: {lifetime.total_tool_calls}"))
+
+        if lifetime.total_tool_calls > 0:
+            lines.append(pad(f"  Overall rejection rate: {lifetime.rejection_rate:.1f}%    Failure rate: {lifetime.failure_rate:.1f}%"))
+
+        if lifetime.ides_used:
+            ides = ", ".join(lifetime.ides_used)
+            lines.append(pad(f"  IDEs: {ides}"))
+
+        lines.append(pad(""))
+
+    # Footer
+    lines.append(pad("Run 'ap stats --daily' for day-by-day breakdown"))
+    lines.append(pad("Run 'ap stats --json' to export for sharing"))
+    lines.append(f"╰{'─' * (box_width - 2)}╯")
+
+    return "\n".join(lines)
 
 
 @cli.command()
