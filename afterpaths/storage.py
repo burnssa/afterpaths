@@ -71,11 +71,3 @@ def add_session_to_index(
         )
 
     save_meta(afterpaths_dir, meta)
-
-
-def find_sessions_by_git_ref(afterpaths_dir: Path, ref: str) -> list[dict]:
-    """Find sessions that reference a specific git ref."""
-    meta = get_meta(afterpaths_dir)
-    return [
-        s for s in meta["sessions"] if any(ref in r for r in s.get("git_refs", []))
-    ]

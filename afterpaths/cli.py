@@ -4,8 +4,8 @@ import click
 from pathlib import Path
 
 from .sources.base import list_all_sessions, get_all_adapters, get_sessions_for_cwd
-from .sources.claude_code import ClaudeCodeAdapter
 from .storage import get_afterpaths_dir, get_meta
+from .utils import get_ide_display_name
 
 
 def _load_env():
@@ -26,9 +26,19 @@ def _load_env():
 
 def _maybe_show_daily_stats():
     """Show daily stats if we haven't shown them today."""
+    from datetime import datetime
     from .daily_stats import show_daily_stats_if_needed
-    from .config import save_analytics_decision
+    from .config import save_analytics_decision, get_global_config
     from .local_analytics import collect_and_record_today
+
+    # Skip daily stats on first run day - audit already provides this info
+    config = get_global_config()
+    first_run_at = config.get("first_run_at", "")
+    if first_run_at:
+        today = datetime.now().strftime("%Y-%m-%d")
+        first_run_day = first_run_at[:10]  # Extract YYYY-MM-DD from ISO format
+        if today == first_run_day:
+            return
 
     # Record today's stats to local analytics (silently)
     try:
@@ -244,10 +254,12 @@ def show(session_ref, raw, session_type, limit):
 
 def _get_adapter_for_session(session):
     """Get the appropriate adapter for a session."""
-    return next(
-        (a for a in get_all_adapters() if a.name == session.source),
-        ClaudeCodeAdapter()
-    )
+    for adapter in get_all_adapters():
+        if adapter.name == session.source:
+            return adapter
+    # Fallback to Claude Code adapter if source not found
+    from .sources.claude_code import ClaudeCodeAdapter
+    return ClaudeCodeAdapter()
 
 
 def _show_raw_transcript(session, limit):
@@ -1233,7 +1245,7 @@ def _run_audit() -> str:
     if adapter_stats:
         lines.append(pad("Found session history from AI coding tools:"))
         for name, stats in adapter_stats.items():
-            display_name = {"claude_code": "Claude Code", "cursor": "Cursor", "codex": "Codex CLI"}.get(name, name)
+            display_name = get_ide_display_name(name)
             count = stats["count"]
             session_label = "session" if count == 1 else "sessions"
             if stats["first_date"]:
@@ -1326,7 +1338,7 @@ def _run_audit() -> str:
             else:
                 has_unsummarized = True
                 # No title - show IDE and model as context
-                ide_name = {"claude_code": "Claude Code", "cursor": "Cursor", "codex": "Codex"}.get(adapter.name, adapter.name)
+                ide_name = get_ide_display_name(adapter.name)
                 # Try to get model from session
                 try:
                     entries = adapter.read_session(session)
@@ -1434,7 +1446,7 @@ def status():
 
     # Rules metadata
     meta = get_meta(afterpaths_dir)
-    rules_meta = meta.get("distill", {})  # Still stored as "distill" for backwards compat
+    rules_meta = meta.get("rules", {})
     if rules_meta.get("last_run"):
         click.echo(f"Last rules extraction: {rules_meta['last_run'][:16]}")
         click.echo(f"Sessions processed: {len(rules_meta.get('sessions_included', []))}")

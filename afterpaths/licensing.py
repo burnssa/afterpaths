@@ -1,4 +1,8 @@
-"""Simple licensing for Pro features."""
+"""Simple licensing for Pro features.
+
+NOTE: This module is currently unused and reserved for future Pro features.
+The 'vault' feature (community rule sets) may use this in a future release.
+"""
 
 import os
 from pathlib import Path

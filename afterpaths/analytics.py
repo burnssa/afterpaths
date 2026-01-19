@@ -6,7 +6,6 @@ For Sprint 1, insights are mock data. Sprint 2 will add real API.
 
 import hashlib
 import os
-import platform
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -56,22 +55,6 @@ class LLMErrorStats:
     # Hour-of-day distribution (0-23)
     rejections_by_hour: dict[int, int] = field(default_factory=dict)
     failures_by_hour: dict[int, int] = field(default_factory=dict)
-
-
-@dataclass
-class DailyEvent:
-    """Anonymized daily usage event."""
-
-    anonymous_id: str
-    date: str  # YYYY-MM-DD
-    project_hash: str
-    stack: list[str]
-    sessions: dict  # {"count": 3, "duration_buckets": {...}}
-    rules: dict  # {"dead-ends": 2, "patterns": 1, ...}
-    errors_by_model: dict[str, dict] = field(default_factory=dict)  # {"claude-opus-4": {"rejections": 2, "failures": 1}}
-    # Environment metadata for segmentation
-    os: str = ""  # "Darwin", "Linux", "Windows"
-    utc_offset_hours: float = 0.0  # Local timezone offset from UTC
 
 
 @dataclass
@@ -315,46 +298,6 @@ def collect_project_stats(project_path: Path) -> dict:
     }
 
 
-def build_daily_event(project_path: Path) -> DailyEvent | None:
-    """Build a daily event for the current project."""
-    if not is_analytics_enabled():
-        return None
-
-    stats = collect_project_stats(project_path)
-
-    # Get UTC offset in hours
-    now = datetime.now().astimezone()
-    utc_offset = now.utcoffset()
-    utc_offset_hours = utc_offset.total_seconds() / 3600 if utc_offset else 0.0
-
-    return DailyEvent(
-        anonymous_id=get_anonymous_id(),
-        date=datetime.now().strftime("%Y-%m-%d"),
-        project_hash=hash_project_path(str(project_path)),
-        stack=stats["stack"],
-        sessions={"count": stats["summary_count"], "duration_buckets": {}},
-        rules=stats["rule_counts"],
-        os=platform.system(),
-        utc_offset_hours=utc_offset_hours,
-    )
-
-
-def send_event(event: DailyEvent) -> bool:
-    """Send event to analytics API.
-
-    Sprint 1: No-op, just returns True.
-    Sprint 2: Will send to real API.
-    """
-    # TODO: Implement real API call in Sprint 2
-    api_url = os.environ.get("AFTERPATHS_API_URL")
-    if not api_url:
-        # No API configured, silently skip
-        return True
-
-    # For now, just log that we would send
-    return True
-
-
 def get_insights(project_path: Path | None = None) -> Insights:
     """Get insights for the user.
 
@@ -502,9 +445,12 @@ def _collect_error_stats(project_path: Path) -> dict[str, LLMErrorStats]:
                         if model not in aggregated:
                             aggregated[model] = LLMErrorStats()
                         agg = aggregated[model]
-                        agg.rejections += stats.rejections
-                        agg.failures += stats.failures
-                        agg.total_tool_calls += stats.total_tool_calls
+                        agg.tool_calls += stats.tool_calls
+                        agg.tool_rejections += stats.tool_rejections
+                        agg.tool_failures += stats.tool_failures
+                        agg.edit_calls += stats.edit_calls
+                        agg.edit_rejections += stats.edit_rejections
+                        agg.edit_failures += stats.edit_failures
 
                         # Merge tool breakdowns
                         for tool, count in stats.rejections_by_tool.items():

@@ -1,4 +1,4 @@
-"""Core distillation logic - extract rules from session summaries."""
+"""Core rules extraction logic - extract rules from session summaries."""
 
 import json
 import re
@@ -12,7 +12,7 @@ from .storage import get_afterpaths_dir, get_meta, save_meta
 
 @dataclass
 class RulesResult:
-    """Result of a distillation run."""
+    """Result of a rules extraction run."""
 
     status: str  # success, no_summaries, no_new_summaries, error
     rules_extracted: int = 0
@@ -328,29 +328,29 @@ def _simple_merge(
     return merged
 
 
-def get_distill_metadata() -> dict:
-    """Get metadata about previous distill runs."""
+def get_rules_metadata() -> dict:
+    """Get metadata about previous rules extraction runs."""
     afterpaths_dir = get_afterpaths_dir()
     meta = get_meta(afterpaths_dir)
-    return meta.get("distill", {})
+    return meta.get("rules", {})
 
 
-def update_distill_metadata(session_ids: list[str]) -> None:
-    """Update metadata after a distill run."""
+def update_rules_metadata(session_ids: list[str]) -> None:
+    """Update metadata after a rules extraction run."""
     afterpaths_dir = get_afterpaths_dir()
     meta = get_meta(afterpaths_dir)
 
-    if "distill" not in meta:
-        meta["distill"] = {
+    if "rules" not in meta:
+        meta["rules"] = {
             "sessions_included": [],
             "version": 1,
         }
 
     # Add new session IDs (avoid duplicates)
-    existing = set(meta["distill"].get("sessions_included", []))
+    existing = set(meta["rules"].get("sessions_included", []))
     existing.update(session_ids)
-    meta["distill"]["sessions_included"] = list(existing)
-    meta["distill"]["last_run"] = datetime.now().isoformat()
+    meta["rules"]["sessions_included"] = list(existing)
+    meta["rules"]["last_run"] = datetime.now().isoformat()
 
     save_meta(afterpaths_dir, meta)
 
@@ -362,7 +362,7 @@ def run_extract_rules(
     target: str | None = None,
     project_root: Path | None = None,
 ) -> RulesResult:
-    """Main distillation logic.
+    """Main rules extraction logic.
 
     Args:
         days: Include summaries from last N days
@@ -386,7 +386,7 @@ def run_extract_rules(
         return RulesResult(status="no_summaries")
 
     # 2. Get metadata about previous runs
-    meta = get_distill_metadata()
+    meta = get_rules_metadata()
     previous_sessions = set(meta.get("sessions_included", [])) if not rebuild else set()
 
     # 3. Filter to new summaries (unless rebuilding)
@@ -444,7 +444,7 @@ def run_extract_rules(
 
         # Update metadata
         all_session_ids = [sid for sid, _, _ in summaries]
-        update_distill_metadata(all_session_ids)
+        update_rules_metadata(all_session_ids)
 
     return RulesResult(
         status="success",

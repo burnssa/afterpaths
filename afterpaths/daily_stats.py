@@ -17,6 +17,7 @@ from .config import (
 )
 from .sources.base import get_all_adapters
 from .stack import detect_stack
+from .utils import get_ide_display_name
 
 
 @dataclass
@@ -185,7 +186,7 @@ def get_daily_stats(project_path: Path | None = None) -> DailyStatsData | None:
         yesterday=yesterday,
         last_7_days=last_7_days,
         stacks_used=sorted(stacks_used),
-        ides_used=sorted(_get_ide_display_name(ide) for ide in ides_used),
+        ides_used=sorted(get_ide_display_name(ide) for ide in ides_used),
         platform_os=_get_platform_name(),
         peak_hours=peak_hours,
     )
@@ -197,16 +198,6 @@ def _get_platform_name() -> str:
     if system == "Darwin":
         return "macOS"
     return system
-
-
-def _get_ide_display_name(adapter_name: str) -> str:
-    """Get human-readable IDE/tool name."""
-    names = {
-        "claude_code": "Claude Code",
-        "codex": "Codex CLI",
-        "cursor": "Cursor",
-    }
-    return names.get(adapter_name, adapter_name)
 
 
 def format_daily_stats(stats: DailyStatsData, box_width: int = 72) -> str:
@@ -328,9 +319,9 @@ def format_optin_teaser(
 
     # Top border with title
     title = " Unlock Community Insights "
-    left_border = "┌─"
+    left_border = "╭─"
     right_border_len = box_width - len(left_border) - len(title) - 1
-    lines.append(f"{left_border}{title}{'─' * right_border_len}┐")
+    lines.append(f"{left_border}{title}{'─' * right_border_len}╮")
 
     lines.append(pad_line(""))
 
@@ -353,7 +344,7 @@ def format_optin_teaser(
     lines.append(pad_line(""))
 
     # Bottom border
-    lines.append(f"└{'─' * (box_width - 2)}┘")
+    lines.append(f"╰{'─' * (box_width - 2)}╯")
 
     return "\n".join(lines)
 

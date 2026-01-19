@@ -11,6 +11,7 @@ from pathlib import Path
 
 from .config import get_global_afterpaths_dir
 from .analytics import detect_llm_errors
+from .utils import get_ide_display_name
 
 
 @dataclass
@@ -453,7 +454,7 @@ def collect_and_record_today(project_path: Path | None = None) -> DailySnapshot 
                 if session.session_type != "main":
                     continue
 
-                ides_used.add(_get_ide_display_name(adapter.name))
+                ides_used.add(get_ide_display_name(adapter.name))
                 if session.project:
                     projects_seen.add(session.project)
 
@@ -513,16 +514,6 @@ def collect_and_record_today(project_path: Path | None = None) -> DailySnapshot 
     return None
 
 
-def _get_ide_display_name(adapter_name: str) -> str:
-    """Get human-readable IDE/tool name."""
-    names = {
-        "claude_code": "Claude Code",
-        "codex": "Codex CLI",
-        "cursor": "Cursor",
-    }
-    return names.get(adapter_name, adapter_name)
-
-
 def backfill_analytics(days: int = 30, project_path: Path | None = None) -> int:
     """Backfill analytics for the last N days.
 
@@ -580,7 +571,7 @@ def backfill_analytics(days: int = 30, project_path: Path | None = None) -> int:
         model_stats: dict[str, dict] = {}
 
         for adapter, session in session_list:
-            ides_used.add(_get_ide_display_name(adapter.name))
+            ides_used.add(get_ide_display_name(adapter.name))
             if session.project:
                 projects_seen.add(session.project)
 
