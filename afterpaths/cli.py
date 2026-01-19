@@ -1022,7 +1022,7 @@ def _format_stats_display(period: dict, lifetime, days: int, cursor_stats: dict 
         fail = period.get('tool_failures', 0)
         rej_rate = period.get('tool_rejection_rate', 0)
         fail_rate = period.get('tool_failure_rate', 0)
-        lines.append(pad(f"  Tool calls: {tc:<5} Rej: {rej} ({rej_rate:.1f}%)  Fail: {fail} ({fail_rate:.1f}%)"))
+        lines.append(pad(f"  Tool calls: {tc:<5} Rejected: {rej} ({rej_rate:.1f}%)  Failed: {fail} ({fail_rate:.1f}%)"))
 
     lines.append(pad(""))
 
@@ -1061,7 +1061,7 @@ def _format_stats_display(period: dict, lifetime, days: int, cursor_stats: dict 
                 total_fail = tool_fail + edit_fail
                 rej_pct = total_rej / tc * 100
                 fail_pct = total_fail / tc * 100
-                lines.append(pad(f"  {model}: {tc} calls, {rej_pct:.1f}% rej, {fail_pct:.1f}% fail"))
+                lines.append(pad(f"  {model}: {tc} calls, {rej_pct:.1f}% rejected, {fail_pct:.1f}% failed"))
 
     lines.append(pad(""))
 
@@ -1073,7 +1073,7 @@ def _format_stats_display(period: dict, lifetime, days: int, cursor_stats: dict 
 
         # Lifetime tool calls
         if lifetime.total_tool_calls > 0:
-            lines.append(pad(f"  Tool calls: {lifetime.total_tool_calls:<5} {lifetime.tool_rejection_rate:.1f}% rej, {lifetime.tool_failure_rate:.1f}% fail"))
+            lines.append(pad(f"  Tool calls: {lifetime.total_tool_calls:<5} {lifetime.tool_rejection_rate:.1f}% rejected, {lifetime.tool_failure_rate:.1f}% failed"))
 
         # Lifetime code edits - show acceptance rate
         if lifetime.total_edit_calls > 0:
@@ -1356,7 +1356,7 @@ def _run_audit() -> str:
         if has_unsummarized:
             lines.append(pad(""))
             lines.append(pad("Tip: Use 'ap summarize <number>' to make sessions easier"))
-            lines.append(pad("     to find and use for smarter future sessions."))
+            lines.append(pad("     to find and use for smarter future agents."))
 
     # Common error patterns
     if error_strings:
