@@ -15,66 +15,194 @@ from .analytics import detect_llm_errors
 
 @dataclass
 class DailySnapshot:
-    """A single day's usage statistics."""
+    """A single day's usage statistics.
+
+    Separates general tool calls from code edit operations:
+    - tool_calls/rejections/failures: Bash, Read, Glob, etc.
+    - edit_calls/rejections/failures: Edit, Write, NotebookEdit
+    """
 
     date: str  # YYYY-MM-DD
     sessions: int = 0
     messages: int = 0
+
+    # General tool calls (non-edit operations)
     tool_calls: int = 0
-    rejections: int = 0
-    failures: int = 0
+    tool_rejections: int = 0
+    tool_failures: int = 0
+
+    # Code edit operations (Edit + Write + NotebookEdit)
+    edit_calls: int = 0
+    edit_rejections: int = 0
+    edit_failures: int = 0
+
+    # Per-model breakdown
     model_stats: dict[str, dict] = field(default_factory=dict)
-    # Format: {"claude-opus-4": {"tool_calls": 100, "rejections": 2, "failures": 1}}
+    # Format: {"claude-opus-4": {"tool_calls": 80, "tool_rejections": 1, "edit_calls": 20, "edit_rejections": 1, ...}}
+
     ides_used: list[str] = field(default_factory=list)
     stacks_used: list[str] = field(default_factory=list)
     projects_active: int = 0
 
+    # Legacy properties for backward compatibility
+    @property
+    def rejections(self) -> int:
+        return self.tool_rejections + self.edit_rejections
+
+    @property
+    def failures(self) -> int:
+        return self.tool_failures + self.edit_failures
+
+    @property
+    def total_calls(self) -> int:
+        return self.tool_calls + self.edit_calls
+
+    @property
+    def tool_rejection_rate(self) -> float:
+        return (self.tool_rejections / self.tool_calls * 100) if self.tool_calls > 0 else 0
+
+    @property
+    def tool_failure_rate(self) -> float:
+        return (self.tool_failures / self.tool_calls * 100) if self.tool_calls > 0 else 0
+
+    @property
+    def edit_rejection_rate(self) -> float:
+        return (self.edit_rejections / self.edit_calls * 100) if self.edit_calls > 0 else 0
+
+    @property
+    def edit_failure_rate(self) -> float:
+        return (self.edit_failures / self.edit_calls * 100) if self.edit_calls > 0 else 0
+
+    # Legacy rates (combined)
     @property
     def rejection_rate(self) -> float:
-        return (self.rejections / self.tool_calls * 100) if self.tool_calls > 0 else 0
+        total = self.total_calls
+        return (self.rejections / total * 100) if total > 0 else 0
 
     @property
     def failure_rate(self) -> float:
-        return (self.failures / self.tool_calls * 100) if self.tool_calls > 0 else 0
+        total = self.total_calls
+        return (self.failures / total * 100) if total > 0 else 0
 
     def to_dict(self) -> dict:
         return asdict(self)
 
     @classmethod
     def from_dict(cls, data: dict) -> "DailySnapshot":
-        return cls(**data)
+        # Handle backward compatibility with old snapshots
+        # Old format had: tool_calls, rejections, failures
+        # New format has: tool_calls, tool_rejections, tool_failures, edit_calls, edit_rejections, edit_failures
+        if "rejections" in data and "tool_rejections" not in data:
+            # Convert old format to new format (assume all were tool calls, not edits)
+            data = data.copy()
+            data["tool_rejections"] = data.pop("rejections", 0)
+            data["tool_failures"] = data.pop("failures", 0)
+            data["edit_calls"] = 0
+            data["edit_rejections"] = 0
+            data["edit_failures"] = 0
+        # Filter to only known fields to avoid errors from removed fields
+        known_fields = {
+            "date", "sessions", "messages",
+            "tool_calls", "tool_rejections", "tool_failures",
+            "edit_calls", "edit_rejections", "edit_failures",
+            "model_stats", "ides_used", "stacks_used", "projects_active",
+        }
+        filtered_data = {k: v for k, v in data.items() if k in known_fields}
+        return cls(**filtered_data)
 
 
 @dataclass
 class LifetimeStats:
-    """Aggregated lifetime statistics."""
+    """Aggregated lifetime statistics.
+
+    Separates general tool calls from code edit operations.
+    """
 
     first_recorded: str | None = None
     last_recorded: str | None = None
     total_days_active: int = 0
     total_sessions: int = 0
     total_messages: int = 0
+
+    # General tool calls
     total_tool_calls: int = 0
-    total_rejections: int = 0
-    total_failures: int = 0
+    total_tool_rejections: int = 0
+    total_tool_failures: int = 0
+
+    # Code edit operations
+    total_edit_calls: int = 0
+    total_edit_rejections: int = 0
+    total_edit_failures: int = 0
+
     model_stats: dict[str, dict] = field(default_factory=dict)
     ides_used: list[str] = field(default_factory=list)
     stacks_used: list[str] = field(default_factory=list)
 
+    # Legacy properties for backward compatibility
+    @property
+    def total_rejections(self) -> int:
+        return self.total_tool_rejections + self.total_edit_rejections
+
+    @property
+    def total_failures(self) -> int:
+        return self.total_tool_failures + self.total_edit_failures
+
+    @property
+    def total_calls(self) -> int:
+        return self.total_tool_calls + self.total_edit_calls
+
+    @property
+    def tool_rejection_rate(self) -> float:
+        return (self.total_tool_rejections / self.total_tool_calls * 100) if self.total_tool_calls > 0 else 0
+
+    @property
+    def tool_failure_rate(self) -> float:
+        return (self.total_tool_failures / self.total_tool_calls * 100) if self.total_tool_calls > 0 else 0
+
+    @property
+    def edit_rejection_rate(self) -> float:
+        return (self.total_edit_rejections / self.total_edit_calls * 100) if self.total_edit_calls > 0 else 0
+
+    @property
+    def edit_failure_rate(self) -> float:
+        return (self.total_edit_failures / self.total_edit_calls * 100) if self.total_edit_calls > 0 else 0
+
     @property
     def rejection_rate(self) -> float:
-        return (self.total_rejections / self.total_tool_calls * 100) if self.total_tool_calls > 0 else 0
+        total = self.total_calls
+        return (self.total_rejections / total * 100) if total > 0 else 0
 
     @property
     def failure_rate(self) -> float:
-        return (self.total_failures / self.total_tool_calls * 100) if self.total_tool_calls > 0 else 0
+        total = self.total_calls
+        return (self.total_failures / total * 100) if total > 0 else 0
 
     def to_dict(self) -> dict:
         return asdict(self)
 
     @classmethod
     def from_dict(cls, data: dict) -> "LifetimeStats":
-        return cls(**data)
+        # Handle backward compatibility with old lifetime stats
+        # Old format had: total_tool_calls, total_rejections, total_failures
+        # New format has: total_tool_calls, total_tool_rejections, total_tool_failures,
+        #                 total_edit_calls, total_edit_rejections, total_edit_failures
+        if "total_rejections" in data and "total_tool_rejections" not in data:
+            data = data.copy()
+            data["total_tool_rejections"] = data.pop("total_rejections", 0)
+            data["total_tool_failures"] = data.pop("total_failures", 0)
+            data["total_edit_calls"] = 0
+            data["total_edit_rejections"] = 0
+            data["total_edit_failures"] = 0
+        # Filter to only known fields
+        known_fields = {
+            "first_recorded", "last_recorded", "total_days_active",
+            "total_sessions", "total_messages",
+            "total_tool_calls", "total_tool_rejections", "total_tool_failures",
+            "total_edit_calls", "total_edit_rejections", "total_edit_failures",
+            "model_stats", "ides_used", "stacks_used",
+        }
+        filtered_data = {k: v for k, v in data.items() if k in known_fields}
+        return cls(**filtered_data)
 
 
 def get_analytics_path() -> Path:
@@ -147,9 +275,16 @@ def _update_lifetime_stats(data: dict, snapshot: dict, subtract: bool = False) -
     # Update totals
     lifetime["total_sessions"] = lifetime.get("total_sessions", 0) + snapshot.get("sessions", 0) * multiplier
     lifetime["total_messages"] = lifetime.get("total_messages", 0) + snapshot.get("messages", 0) * multiplier
+
+    # General tool calls
     lifetime["total_tool_calls"] = lifetime.get("total_tool_calls", 0) + snapshot.get("tool_calls", 0) * multiplier
-    lifetime["total_rejections"] = lifetime.get("total_rejections", 0) + snapshot.get("rejections", 0) * multiplier
-    lifetime["total_failures"] = lifetime.get("total_failures", 0) + snapshot.get("failures", 0) * multiplier
+    lifetime["total_tool_rejections"] = lifetime.get("total_tool_rejections", 0) + snapshot.get("tool_rejections", 0) * multiplier
+    lifetime["total_tool_failures"] = lifetime.get("total_tool_failures", 0) + snapshot.get("tool_failures", 0) * multiplier
+
+    # Code edit operations
+    lifetime["total_edit_calls"] = lifetime.get("total_edit_calls", 0) + snapshot.get("edit_calls", 0) * multiplier
+    lifetime["total_edit_rejections"] = lifetime.get("total_edit_rejections", 0) + snapshot.get("edit_rejections", 0) * multiplier
+    lifetime["total_edit_failures"] = lifetime.get("total_edit_failures", 0) + snapshot.get("edit_failures", 0) * multiplier
 
     # Update date range
     snapshot_date = snapshot.get("date")
@@ -163,10 +298,16 @@ def _update_lifetime_stats(data: dict, snapshot: dict, subtract: bool = False) -
     model_stats = lifetime.setdefault("model_stats", {})
     for model, stats in snapshot.get("model_stats", {}).items():
         if model not in model_stats:
-            model_stats[model] = {"tool_calls": 0, "rejections": 0, "failures": 0}
+            model_stats[model] = {
+                "tool_calls": 0, "tool_rejections": 0, "tool_failures": 0,
+                "edit_calls": 0, "edit_rejections": 0, "edit_failures": 0,
+            }
         model_stats[model]["tool_calls"] += stats.get("tool_calls", 0) * multiplier
-        model_stats[model]["rejections"] += stats.get("rejections", 0) * multiplier
-        model_stats[model]["failures"] += stats.get("failures", 0) * multiplier
+        model_stats[model]["tool_rejections"] += stats.get("tool_rejections", 0) * multiplier
+        model_stats[model]["tool_failures"] += stats.get("tool_failures", 0) * multiplier
+        model_stats[model]["edit_calls"] += stats.get("edit_calls", 0) * multiplier
+        model_stats[model]["edit_rejections"] += stats.get("edit_rejections", 0) * multiplier
+        model_stats[model]["edit_failures"] += stats.get("edit_failures", 0) * multiplier
 
     # Update IDEs and stacks (set union, only on add)
     if not subtract:
@@ -216,10 +357,15 @@ def get_period_stats(days: int) -> dict:
             "sessions": 0,
             "messages": 0,
             "tool_calls": 0,
-            "rejections": 0,
-            "failures": 0,
-            "rejection_rate": 0,
-            "failure_rate": 0,
+            "tool_rejections": 0,
+            "tool_failures": 0,
+            "tool_rejection_rate": 0,
+            "tool_failure_rate": 0,
+            "edit_calls": 0,
+            "edit_rejections": 0,
+            "edit_failures": 0,
+            "edit_rejection_rate": 0,
+            "edit_failure_rate": 0,
             "model_stats": {},
             "days_active": 0,
         }
@@ -228,9 +374,14 @@ def get_period_stats(days: int) -> dict:
         "days": days,
         "sessions": sum(s.sessions for s in snapshots),
         "messages": sum(s.messages for s in snapshots),
+        # General tool calls
         "tool_calls": sum(s.tool_calls for s in snapshots),
-        "rejections": sum(s.rejections for s in snapshots),
-        "failures": sum(s.failures for s in snapshots),
+        "tool_rejections": sum(s.tool_rejections for s in snapshots),
+        "tool_failures": sum(s.tool_failures for s in snapshots),
+        # Code edit operations
+        "edit_calls": sum(s.edit_calls for s in snapshots),
+        "edit_rejections": sum(s.edit_rejections for s in snapshots),
+        "edit_failures": sum(s.edit_failures for s in snapshots),
         "days_active": len(snapshots),
         "model_stats": {},
     }
@@ -240,17 +391,27 @@ def get_period_stats(days: int) -> dict:
     for s in snapshots:
         for model, stats in s.model_stats.items():
             if model not in model_stats:
-                model_stats[model] = {"tool_calls": 0, "rejections": 0, "failures": 0}
+                model_stats[model] = {
+                    "tool_calls": 0, "tool_rejections": 0, "tool_failures": 0,
+                    "edit_calls": 0, "edit_rejections": 0, "edit_failures": 0,
+                }
             model_stats[model]["tool_calls"] += stats.get("tool_calls", 0)
-            model_stats[model]["rejections"] += stats.get("rejections", 0)
-            model_stats[model]["failures"] += stats.get("failures", 0)
+            model_stats[model]["tool_rejections"] += stats.get("tool_rejections", 0)
+            model_stats[model]["tool_failures"] += stats.get("tool_failures", 0)
+            model_stats[model]["edit_calls"] += stats.get("edit_calls", 0)
+            model_stats[model]["edit_rejections"] += stats.get("edit_rejections", 0)
+            model_stats[model]["edit_failures"] += stats.get("edit_failures", 0)
 
     totals["model_stats"] = model_stats
 
     # Compute rates
     tc = totals["tool_calls"]
-    totals["rejection_rate"] = (totals["rejections"] / tc * 100) if tc > 0 else 0
-    totals["failure_rate"] = (totals["failures"] / tc * 100) if tc > 0 else 0
+    totals["tool_rejection_rate"] = (totals["tool_rejections"] / tc * 100) if tc > 0 else 0
+    totals["tool_failure_rate"] = (totals["tool_failures"] / tc * 100) if tc > 0 else 0
+
+    ec = totals["edit_calls"]
+    totals["edit_rejection_rate"] = (totals["edit_rejections"] / ec * 100) if ec > 0 else 0
+    totals["edit_failure_rate"] = (totals["edit_failures"] / ec * 100) if ec > 0 else 0
 
     return totals
 
@@ -308,15 +469,27 @@ def collect_and_record_today(project_path: Path | None = None) -> DailySnapshot 
                     session_errors = detect_llm_errors(entries)
 
                     for model, stats in session_errors.items():
-                        snapshot.tool_calls += stats.total_tool_calls
-                        snapshot.rejections += stats.rejections
-                        snapshot.failures += stats.failures
+                        # General tool calls
+                        snapshot.tool_calls += stats.tool_calls
+                        snapshot.tool_rejections += stats.tool_rejections
+                        snapshot.tool_failures += stats.tool_failures
+
+                        # Code edit operations
+                        snapshot.edit_calls += stats.edit_calls
+                        snapshot.edit_rejections += stats.edit_rejections
+                        snapshot.edit_failures += stats.edit_failures
 
                         if model not in model_stats:
-                            model_stats[model] = {"tool_calls": 0, "rejections": 0, "failures": 0}
-                        model_stats[model]["tool_calls"] += stats.total_tool_calls
-                        model_stats[model]["rejections"] += stats.rejections
-                        model_stats[model]["failures"] += stats.failures
+                            model_stats[model] = {
+                                "tool_calls": 0, "tool_rejections": 0, "tool_failures": 0,
+                                "edit_calls": 0, "edit_rejections": 0, "edit_failures": 0,
+                            }
+                        model_stats[model]["tool_calls"] += stats.tool_calls
+                        model_stats[model]["tool_rejections"] += stats.tool_rejections
+                        model_stats[model]["tool_failures"] += stats.tool_failures
+                        model_stats[model]["edit_calls"] += stats.edit_calls
+                        model_stats[model]["edit_rejections"] += stats.edit_rejections
+                        model_stats[model]["edit_failures"] += stats.edit_failures
 
                     snapshot.messages += message_count
                     snapshot.sessions += 1
@@ -417,15 +590,27 @@ def backfill_analytics(days: int = 30, project_path: Path | None = None) -> int:
                 session_errors = detect_llm_errors(entries)
 
                 for model, stats in session_errors.items():
-                    snapshot.tool_calls += stats.total_tool_calls
-                    snapshot.rejections += stats.rejections
-                    snapshot.failures += stats.failures
+                    # General tool calls
+                    snapshot.tool_calls += stats.tool_calls
+                    snapshot.tool_rejections += stats.tool_rejections
+                    snapshot.tool_failures += stats.tool_failures
+
+                    # Code edit operations
+                    snapshot.edit_calls += stats.edit_calls
+                    snapshot.edit_rejections += stats.edit_rejections
+                    snapshot.edit_failures += stats.edit_failures
 
                     if model not in model_stats:
-                        model_stats[model] = {"tool_calls": 0, "rejections": 0, "failures": 0}
-                    model_stats[model]["tool_calls"] += stats.total_tool_calls
-                    model_stats[model]["rejections"] += stats.rejections
-                    model_stats[model]["failures"] += stats.failures
+                        model_stats[model] = {
+                            "tool_calls": 0, "tool_rejections": 0, "tool_failures": 0,
+                            "edit_calls": 0, "edit_rejections": 0, "edit_failures": 0,
+                        }
+                    model_stats[model]["tool_calls"] += stats.tool_calls
+                    model_stats[model]["tool_rejections"] += stats.tool_rejections
+                    model_stats[model]["tool_failures"] += stats.tool_failures
+                    model_stats[model]["edit_calls"] += stats.edit_calls
+                    model_stats[model]["edit_rejections"] += stats.edit_rejections
+                    model_stats[model]["edit_failures"] += stats.edit_failures
 
                 snapshot.messages += message_count
                 snapshot.sessions += 1

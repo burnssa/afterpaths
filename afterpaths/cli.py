@@ -85,15 +85,34 @@ def _find_session(session_ref: str, session_type: str = "main"):
     return next((s for s in all_sessions if s.session_id.startswith(session_ref)), None)
 
 
-@click.group()
+@click.group(invoke_without_command=True)
 @click.pass_context
 def cli(ctx):
-    """Afterpaths: A research log for AI-assisted work."""
+    """Afterpaths: Smarter with every session, automatically.
+
+    Extract rules from what worked. Track what didn't. Find the best models
+    for your stack.
+    """
     _load_env()
 
+    # If no subcommand, check for first run or show help
+    if ctx.invoked_subcommand is None:
+        from .config import is_first_run, mark_first_run_complete
+
+        if is_first_run():
+            # First run - show audit
+            click.echo()
+            click.echo("Welcome to Afterpaths!")
+            click.echo()
+            click.echo(_run_audit())
+            mark_first_run_complete()
+        else:
+            # Show help
+            click.echo(ctx.get_help())
+        return
+
     # Show daily stats on first use each day (skip for help/completion)
-    if ctx.invoked_subcommand is not None:
-        _maybe_show_daily_stats()
+    _maybe_show_daily_stats()
 
 
 @cli.command()
@@ -954,13 +973,23 @@ def stats(daily, days, as_json):
         period = get_period_stats(days)
         lifetime = get_lifetime_stats()
 
-        click.echo(_format_stats_display(period, lifetime, days))
+        # Get Cursor code tracking stats if available
+        cursor_stats = None
+        try:
+            from .sources.cursor import CursorAdapter
+            adapter = CursorAdapter()
+            if adapter.is_available():
+                cursor_stats = adapter.get_code_tracking_stats(days=days)
+        except Exception:
+            pass
+
+        click.echo(_format_stats_display(period, lifetime, days, cursor_stats))
 
 
-def _format_stats_display(period: dict, lifetime, days: int) -> str:
+def _format_stats_display(period: dict, lifetime, days: int, cursor_stats: dict | None = None) -> str:
     """Format stats for terminal display."""
     lines = []
-    box_width = 64
+    box_width = 68
     inner = box_width - 4
 
     def pad(text: str) -> str:
@@ -972,38 +1001,73 @@ def _format_stats_display(period: dict, lifetime, days: int) -> str:
 
     # Period stats
     lines.append(pad(f"Last {days} Days ({period['days_active']} active)"))
-    lines.append(pad(f"  Sessions: {period['sessions']:<6} Messages: {period['messages']:<6} Tool calls: {period['tool_calls']}"))
+    lines.append(pad(f"  Sessions: {period['sessions']:<6} Messages: {period['messages']}"))
 
-    if period['tool_calls'] > 0:
-        rej = period['rejections']
-        fail = period['failures']
-        rej_rate = period['rejection_rate']
-        fail_rate = period['failure_rate']
-        lines.append(pad(f"  Rejections: {rej} ({rej_rate:.1f}%)    Failures: {fail} ({fail_rate:.1f}%)"))
+    # Tool calls (Bash, Read, Grep, etc.) - show rejection/failure rates
+    tc = period.get('tool_calls', 0)
+    if tc > 0:
+        rej = period.get('tool_rejections', 0)
+        fail = period.get('tool_failures', 0)
+        rej_rate = period.get('tool_rejection_rate', 0)
+        fail_rate = period.get('tool_failure_rate', 0)
+        lines.append(pad(f"  Tool calls: {tc:<5} Rej: {rej} ({rej_rate:.1f}%)  Fail: {fail} ({fail_rate:.1f}%)"))
+
+    lines.append(pad(""))
+
+    # Code Change Acceptance Rates section
+    lines.append(pad("Code Change Acceptance"))
+
+    # Claude Code/Codex: edit suggestions (discrete proposals)
+    ec = period.get('edit_calls', 0)
+    if ec > 0:
+        rej = period.get('edit_rejections', 0)
+        accepted = ec - rej
+        accept_rate = (accepted / ec * 100) if ec > 0 else 0
+        lines.append(pad(f"  CLI agents: {ec} suggestions, {accept_rate:.1f}% accepted"))
+
+    # Cursor: lines suggested/accepted
+    if cursor_stats:
+        # Combine tab + composer lines
+        total_suggested = cursor_stats.get('tab_suggested', 0) + cursor_stats.get('composer_suggested', 0)
+        total_accepted = cursor_stats.get('tab_accepted', 0) + cursor_stats.get('composer_accepted', 0)
+        if total_suggested > 0:
+            accept_rate = total_accepted / total_suggested * 100
+            lines.append(pad(f"  Cursor: {total_suggested} lines suggested, {accept_rate:.1f}% accepted"))
 
     # Model breakdown
     if period['model_stats']:
         lines.append(pad(""))
-        lines.append(pad("  By Model:"))
+        lines.append(pad("By Model:"))
         for model, stats in sorted(period['model_stats'].items()):
-            tc = stats['tool_calls']
-            rej = stats['rejections']
-            fail = stats['failures']
+            tc = stats.get('tool_calls', 0) + stats.get('edit_calls', 0)
             if tc > 0:
-                rej_pct = rej / tc * 100
-                fail_pct = fail / tc * 100
-                lines.append(pad(f"    {model}: {tc} calls, {rej_pct:.1f}% rej, {fail_pct:.1f}% fail"))
+                tool_rej = stats.get('tool_rejections', 0)
+                edit_rej = stats.get('edit_rejections', 0)
+                tool_fail = stats.get('tool_failures', 0)
+                edit_fail = stats.get('edit_failures', 0)
+                total_rej = tool_rej + edit_rej
+                total_fail = tool_fail + edit_fail
+                rej_pct = total_rej / tc * 100
+                fail_pct = total_fail / tc * 100
+                lines.append(pad(f"  {model}: {tc} calls, {rej_pct:.1f}% rej, {fail_pct:.1f}% fail"))
 
     lines.append(pad(""))
 
     # Lifetime stats
     if lifetime.total_sessions > 0:
         lines.append(pad("Lifetime"))
-        lines.append(pad(f"  Days active: {lifetime.total_days_active:<4} Total sessions: {lifetime.total_sessions}"))
-        lines.append(pad(f"  Total messages: {lifetime.total_messages:<6} Total tool calls: {lifetime.total_tool_calls}"))
+        lines.append(pad(f"  Days active: {lifetime.total_days_active:<4} Sessions: {lifetime.total_sessions}"))
+        lines.append(pad(f"  Messages: {lifetime.total_messages}"))
 
+        # Lifetime tool calls
         if lifetime.total_tool_calls > 0:
-            lines.append(pad(f"  Overall rejection rate: {lifetime.rejection_rate:.1f}%    Failure rate: {lifetime.failure_rate:.1f}%"))
+            lines.append(pad(f"  Tool calls: {lifetime.total_tool_calls:<5} {lifetime.tool_rejection_rate:.1f}% rej, {lifetime.tool_failure_rate:.1f}% fail"))
+
+        # Lifetime code edits - show acceptance rate
+        if lifetime.total_edit_calls > 0:
+            accepted = lifetime.total_edit_calls - lifetime.total_edit_rejections
+            accept_rate = (accepted / lifetime.total_edit_calls * 100) if lifetime.total_edit_calls > 0 else 0
+            lines.append(pad(f"  CLI suggestions: {lifetime.total_edit_calls:<4} {accept_rate:.1f}% accepted"))
 
         if lifetime.ides_used:
             ides = ", ".join(lifetime.ides_used)
@@ -1014,6 +1078,335 @@ def _format_stats_display(period: dict, lifetime, days: int) -> str:
     # Footer
     lines.append(pad("Run 'ap stats --daily' for day-by-day breakdown"))
     lines.append(pad("Run 'ap stats --json' to export for sharing"))
+    lines.append(f"╰{'─' * (box_width - 2)}╯")
+
+    return "\n".join(lines)
+
+
+@cli.command()
+def audit():
+    """Audit your AI coding tools - discover patterns, problems, and opportunities."""
+    from datetime import datetime, timedelta
+    from .sources.base import get_all_adapters
+    from .analytics import detect_llm_errors, EDIT_TOOLS
+    from .stack import detect_stack
+
+    click.echo()
+    click.echo(_run_audit())
+
+
+def _run_audit() -> str:
+    """Run audit and return formatted output."""
+    from datetime import datetime, timedelta
+    from .sources.base import get_all_adapters
+    from .analytics import detect_llm_errors, EDIT_TOOLS
+    from .stack import detect_stack
+
+    lines = []
+    box_width = 72
+    inner = box_width - 4
+
+    def pad(text: str) -> str:
+        return f"│ {text:<{inner}} │"
+
+    def header(text: str) -> str:
+        return pad(f"─── {text} ───")
+
+    # Collect data from all adapters
+    adapter_stats = {}
+    all_sessions = []
+    problem_sessions = []
+    error_strings = []
+    total_tool_calls = 0
+    total_failures = 0
+    total_rejections = 0
+    total_edit_calls = 0
+    total_edit_rejections = 0
+    failures_by_tool = {}
+    failures_by_hour = {}
+    model_stats = {}
+
+    cutoff_30d = datetime.now() - timedelta(days=30)
+
+    for adapter in get_all_adapters():
+        try:
+            sessions = adapter.list_sessions()
+            adapter_stats[adapter.name] = {
+                "count": len(sessions),
+                "first_date": None,
+            }
+
+            # Find earliest session date
+            for s in sessions:
+                if adapter_stats[adapter.name]["first_date"] is None or s.modified < adapter_stats[adapter.name]["first_date"]:
+                    adapter_stats[adapter.name]["first_date"] = s.modified
+
+            # Analyze recent sessions for errors
+            for session in sessions:
+                if session.modified < cutoff_30d:
+                    continue
+                if session.session_type != "main":
+                    continue
+
+                all_sessions.append((adapter, session))
+
+                try:
+                    entries = adapter.read_session(session)
+                    session_errors = detect_llm_errors(entries)
+
+                    session_failures = 0
+                    session_tool_calls = 0
+
+                    for model, stats in session_errors.items():
+                        # Aggregate totals
+                        total_tool_calls += stats.tool_calls
+                        total_failures += stats.tool_failures
+                        total_rejections += stats.tool_rejections
+                        total_edit_calls += stats.edit_calls
+                        total_edit_rejections += stats.edit_rejections
+
+                        session_failures += stats.tool_failures + stats.edit_failures
+                        session_tool_calls += stats.tool_calls + stats.edit_calls
+
+                        # Track by model
+                        if model not in model_stats:
+                            model_stats[model] = {"calls": 0, "failures": 0, "rejections": 0}
+                        model_stats[model]["calls"] += stats.tool_calls + stats.edit_calls
+                        model_stats[model]["failures"] += stats.tool_failures + stats.edit_failures
+                        model_stats[model]["rejections"] += stats.tool_rejections + stats.edit_rejections
+
+                        # Track failures by tool
+                        for tool, count in stats.failures_by_tool.items():
+                            failures_by_tool[tool] = failures_by_tool.get(tool, 0) + count
+
+                        # Track by hour
+                        for hour, count in stats.failures_by_hour.items():
+                            failures_by_hour[hour] = failures_by_hour.get(hour, 0) + count
+
+                    # Detect problem sessions (high failure rate)
+                    if session_failures >= 8:
+                        problem_sessions.append({
+                            "session": session,
+                            "failures": session_failures,
+                            "tool_calls": session_tool_calls,
+                        })
+
+                    # Extract error strings from tool results
+                    for entry in entries:
+                        if entry.role == "tool_result" and entry.is_error:
+                            content = entry.content[:100] if entry.content else ""
+                            if content and "rejected" not in content.lower():
+                                error_strings.append(content)
+
+                except Exception:
+                    continue
+        except Exception:
+            continue
+
+    # Get Cursor code tracking stats
+    cursor_stats = None
+    try:
+        from .sources.cursor import CursorAdapter
+        cursor_adapter = CursorAdapter()
+        if cursor_adapter.is_available():
+            cursor_stats = cursor_adapter.get_code_tracking_stats(days=30)
+    except Exception:
+        pass
+
+    # Check for rules files
+    rules_dirs = [
+        Path.cwd() / ".claude" / "rules",
+        Path.cwd() / ".cursor" / "rules",
+    ]
+    rules_found = {}
+    for rules_dir in rules_dirs:
+        if rules_dir.exists():
+            rule_files = list(rules_dir.glob("*.md"))
+            if rule_files:
+                rules_found[rules_dir.parent.name] = len(rule_files)
+
+    # Format output
+    lines.append(f"╭─ Afterpaths Audit {'─' * (box_width - 21)}╮")
+    lines.append(pad(""))
+
+    # Tools discovered
+    if adapter_stats:
+        lines.append(pad("Found session history from AI coding tools:"))
+        for name, stats in adapter_stats.items():
+            display_name = {"claude_code": "Claude Code", "cursor": "Cursor", "codex": "Codex CLI"}.get(name, name)
+            count = stats["count"]
+            session_label = "session" if count == 1 else "sessions"
+            if stats["first_date"]:
+                since = stats["first_date"].strftime("%b %d")
+                lines.append(pad(f"  {display_name}: {count} {session_label} (since {since})"))
+            else:
+                lines.append(pad(f"  {display_name}: {count} {session_label}"))
+    else:
+        lines.append(pad("No AI coding tool sessions found."))
+        lines.append(pad(""))
+        lines.append(pad("Afterpaths works with Claude Code, Cursor, and Codex CLI."))
+        lines.append(f"╰{'─' * (box_width - 2)}╯")
+        return "\n".join(lines)
+
+    lines.append(pad(""))
+    lines.append(header("Performance Overview (Last 30 Days)"))
+    lines.append(pad(""))
+
+    # Tool calls summary
+    if total_tool_calls > 0:
+        fail_rate = total_failures / total_tool_calls * 100
+        rej_rate = total_rejections / total_tool_calls * 100
+        lines.append(pad(f"Tool Calls: {total_tool_calls:,} total"))
+        lines.append(pad(f"  {total_failures} failures ({fail_rate:.1f}%)  {total_rejections} rejections ({rej_rate:.1f}%)"))
+
+        # Highest failure tool
+        if failures_by_tool:
+            worst_tool = max(failures_by_tool, key=failures_by_tool.get)
+            worst_count = failures_by_tool[worst_tool]
+            lines.append(pad(f"  Highest failure tool: {worst_tool} ({worst_count} failures)"))
+
+        # Peak error time
+        if failures_by_hour:
+            peak_hour = max(failures_by_hour, key=failures_by_hour.get)
+            time_label = f"{peak_hour}:00-{(peak_hour+1)%24}:00"
+            lines.append(pad(f"  Peak error time: {time_label}"))
+
+    lines.append(pad(""))
+
+    # Code acceptance
+    lines.append(pad("Code Change Acceptance:"))
+    if total_edit_calls > 0:
+        accepted = total_edit_calls - total_edit_rejections
+        accept_rate = accepted / total_edit_calls * 100
+        lines.append(pad(f"  CLI agents: {total_edit_calls} suggestions, {accept_rate:.1f}% accepted"))
+
+    if cursor_stats:
+        total_suggested = cursor_stats.get('tab_suggested', 0) + cursor_stats.get('composer_suggested', 0)
+        total_accepted = cursor_stats.get('tab_accepted', 0) + cursor_stats.get('composer_accepted', 0)
+        if total_suggested > 0:
+            accept_rate = total_accepted / total_suggested * 100
+            lines.append(pad(f"  Cursor: {total_suggested:,} lines, {accept_rate:.1f}% accepted"))
+
+    lines.append(pad(""))
+
+    # Model comparison
+    if model_stats:
+        lines.append(pad("Model Comparison:"))
+        sorted_models = sorted(model_stats.items(), key=lambda x: x[1]["failures"] / max(x[1]["calls"], 1))
+        for model, stats in sorted_models:
+            if stats["calls"] > 0:
+                fail_rate = stats["failures"] / stats["calls"] * 100
+                rej_rate = stats["rejections"] / stats["calls"] * 100
+                indicator = "+" if fail_rate < 10 else "-" if fail_rate > 30 else " "
+                call_label = "call" if stats["calls"] == 1 else "calls"
+                lines.append(pad(f"  {indicator} {model}: {rej_rate:.1f}% rejected, {fail_rate:.1f}% failed ({stats['calls']} {call_label})"))
+
+    # Longest sessions - most significant work worth preserving
+    if all_sessions:
+        from .analytics import _normalize_model_name
+
+        # Sort by size (proxy for session length/depth)
+        sessions_by_size = sorted(all_sessions, key=lambda x: x[1].size, reverse=True)
+        top_sessions = sessions_by_size[:5]
+
+        lines.append(pad(""))
+        lines.append(header("Longest Sessions"))
+        lines.append(pad(""))
+        lines.append(pad("Your most in-depth sessions (worth summarizing):"))
+
+        has_unsummarized = False
+        for adapter, session in top_sessions:
+            date = session.modified.strftime("%b %d")
+            size_kb = session.size // 1024
+
+            if session.summary:
+                summary = session.summary
+                if len(summary) > 38:
+                    summary = summary[:35] + "..."
+            else:
+                has_unsummarized = True
+                # No title - show IDE and model as context
+                ide_name = {"claude_code": "Claude Code", "cursor": "Cursor", "codex": "Codex"}.get(adapter.name, adapter.name)
+                # Try to get model from session
+                try:
+                    entries = adapter.read_session(session)
+                    models = {_normalize_model_name(e.model) for e in entries if e.model}
+                    if models:
+                        model = sorted(models)[0]  # Pick first alphabetically
+                        summary = f"{ide_name} / {model}"
+                    else:
+                        summary = ide_name
+                except Exception:
+                    summary = ide_name
+
+            lines.append(pad(f"  {date}: {summary} ({size_kb}KB)"))
+
+        if has_unsummarized:
+            lines.append(pad(""))
+            lines.append(pad("Tip: Use 'ap summarize <number>' to make sessions easier"))
+            lines.append(pad("     to find and use for smarter future sessions."))
+
+    # Common error patterns
+    if error_strings:
+        lines.append(pad(""))
+        lines.append(header("Common Error Patterns"))
+        lines.append(pad(""))
+        # Find common substrings in errors
+        error_keywords = {}
+        keywords_to_check = ["not found", "permission denied", "no such file", "syntax error",
+                            "undefined", "import error", "module not found", "connection refused",
+                            "timeout", "failed to", "cannot", "invalid"]
+        for err in error_strings:
+            err_lower = err.lower()
+            for kw in keywords_to_check:
+                if kw in err_lower:
+                    error_keywords[kw] = error_keywords.get(kw, 0) + 1
+
+        if error_keywords:
+            sorted_errors = sorted(error_keywords.items(), key=lambda x: x[1], reverse=True)[:4]
+            for kw, count in sorted_errors:
+                occ_label = "occurrence" if count == 1 else "occurrences"
+                lines.append(pad(f"  \"{kw}\": {count} {occ_label}"))
+
+    # Rules coverage
+    lines.append(pad(""))
+    lines.append(header("Rules Coverage"))
+    lines.append(pad(""))
+
+    if rules_found:
+        for tool, count in rules_found.items():
+            file_label = "rule file" if count == 1 else "rule files"
+            lines.append(pad(f"  {tool}/rules: {count} {file_label}"))
+    else:
+        lines.append(pad("No rules files found in this project."))
+        lines.append(pad(""))
+        lines.append(pad("Your agents are at risk of repeating past failures."))
+
+    # Recommendations
+    lines.append(pad(""))
+    lines.append(header("Recommended Next Steps"))
+    lines.append(pad(""))
+
+    if not rules_found:
+        lines.append(pad("1. Summarize your longest session to preserve discoveries:"))
+        lines.append(pad("   $ ap summarize 1"))
+        lines.append(pad(""))
+        lines.append(pad("2. Generate rules from your summaries:"))
+        lines.append(pad("   $ ap rules"))
+        lines.append(pad(""))
+        lines.append(pad("3. Browse your session history:"))
+        lines.append(pad("   $ ap log"))
+    else:
+        lines.append(pad("1. Browse sessions and find ones worth summarizing:"))
+        lines.append(pad("   $ ap log"))
+        lines.append(pad(""))
+        lines.append(pad("2. Summarize to preserve discoveries:"))
+        lines.append(pad("   $ ap summarize <session_number>"))
+        lines.append(pad(""))
+        lines.append(pad("3. Update rules with new discoveries:"))
+        lines.append(pad("   $ ap rules"))
+
+    lines.append(pad(""))
     lines.append(f"╰{'─' * (box_width - 2)}╯")
 
     return "\n".join(lines)

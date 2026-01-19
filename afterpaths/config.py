@@ -87,3 +87,17 @@ def disable_analytics() -> None:
 def enable_analytics() -> None:
     """Enable analytics (opt in)."""
     save_analytics_decision(True)
+
+
+def is_first_run() -> bool:
+    """Check if this is the first time afterpaths is being run."""
+    config = get_global_config()
+    return not config.get("first_run_complete", False)
+
+
+def mark_first_run_complete() -> None:
+    """Mark that the first run has been completed."""
+    config = get_global_config()
+    config["first_run_complete"] = True
+    config["first_run_at"] = datetime.now().isoformat()
+    save_global_config(config)

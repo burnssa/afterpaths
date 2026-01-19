@@ -3,10 +3,10 @@
 import json
 import os
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
-from .base import SessionEntry, SessionInfo, SourceAdapter
+from .base import CachedStats, SessionEntry, SessionInfo, SourceAdapter
 
 
 class CursorAdapter(SourceAdapter):
@@ -14,6 +14,9 @@ class CursorAdapter(SourceAdapter):
 
     Cursor stores chat history in SQLite databases (state.vscdb) within
     workspace-specific folders in ~/Library/Application Support/Cursor/User/workspaceStorage/
+
+    Cursor also stores code tracking stats (suggested/accepted lines) in
+    the global state.vscdb at ~/Library/Application Support/Cursor/User/globalStorage/
     """
 
     name = "cursor"
@@ -31,6 +34,20 @@ class CursorAdapter(SourceAdapter):
             return Path(appdata) / "Cursor/User/workspaceStorage"
         else:  # Linux
             return Path.home() / ".config/Cursor/User/workspaceStorage"
+
+    @classmethod
+    def get_global_storage_dir(cls) -> Path:
+        """Get platform-specific globalStorage directory."""
+        import platform
+
+        system = platform.system()
+        if system == "Darwin":  # macOS
+            return Path.home() / "Library/Application Support/Cursor/User/globalStorage"
+        elif system == "Windows":
+            appdata = os.environ.get("APPDATA", "")
+            return Path(appdata) / "Cursor/User/globalStorage"
+        else:  # Linux
+            return Path.home() / ".config/Cursor/User/globalStorage"
 
     @classmethod
     def is_available(cls) -> bool:
@@ -67,13 +84,21 @@ class CursorAdapter(SourceAdapter):
             for session_id, session_data in chat_data.items():
                 stat = vscdb_path.stat()
                 summary = self._extract_summary(session_data)
+
+                # Get timestamp from session data (ms) or fall back to file mtime
+                last_updated = session_data.get("lastUpdatedAt")
+                if last_updated and isinstance(last_updated, (int, float)):
+                    modified = datetime.fromtimestamp(last_updated / 1000)
+                else:
+                    modified = datetime.fromtimestamp(stat.st_mtime)
+
                 sessions.append(
                     SessionInfo(
                         session_id=session_id,
                         source=self.name,
                         project=project_name,
                         path=vscdb_path,
-                        modified=datetime.fromtimestamp(stat.st_mtime),
+                        modified=modified,
                         size=stat.st_size,
                         summary=summary,
                     )
@@ -174,6 +199,11 @@ class CursorAdapter(SourceAdapter):
         """Extract chat data from state.vscdb SQLite database.
 
         Returns a dict of session_id -> session_data
+
+        Handles multiple Cursor data formats:
+        - Old: workbench.panel.aichat.view.aichat.chatdata (dict or list)
+        - Newer: composer.composerData (dict with composers key)
+        - Current: allComposers (list of composer objects)
         """
         sessions = {}
 
@@ -181,11 +211,11 @@ class CursorAdapter(SourceAdapter):
             conn = sqlite3.connect(str(vscdb_path))
             cursor = conn.cursor()
 
-            # Query for chat data (AI chat panel)
+            # Query for chat data (all known keys)
             cursor.execute(
                 "SELECT [key], value FROM ItemTable WHERE [key] IN "
                 "('aiService.prompts', 'workbench.panel.aichat.view.aichat.chatdata', "
-                "'composer.composerData')"
+                "'composer.composerData', 'allComposers')"
             )
 
             for key, value in cursor.fetchall():
@@ -213,12 +243,32 @@ class CursorAdapter(SourceAdapter):
                                 sessions[chat_id] = tab
 
                 elif key == "composer.composerData":
-                    # Composer chats (newer format)
+                    # Composer chats - can have nested allComposers or composers dict
                     if isinstance(data, dict):
+                        # Check for allComposers list inside composer.composerData
+                        all_composers = data.get("allComposers", [])
+                        if isinstance(all_composers, list):
+                            for composer in all_composers:
+                                if isinstance(composer, dict):
+                                    comp_id = composer.get("composerId", "")
+                                    if comp_id:
+                                        sessions[f"composer-{comp_id}"] = composer
+
+                        # Also check for older composers dict format
                         composers = data.get("composers", {})
-                        for comp_id, composer in composers.items():
+                        if isinstance(composers, dict):
+                            for comp_id, composer in composers.items():
+                                if isinstance(composer, dict):
+                                    sessions[f"composer-{comp_id}"] = composer
+
+                elif key == "allComposers":
+                    # Standalone allComposers key (alternative location)
+                    if isinstance(data, list):
+                        for composer in data:
                             if isinstance(composer, dict):
-                                sessions[f"composer-{comp_id}"] = composer
+                                comp_id = composer.get("composerId", composer.get("id", ""))
+                                if comp_id:
+                                    sessions[f"composer-{comp_id}"] = composer
 
             conn.close()
 
@@ -229,10 +279,15 @@ class CursorAdapter(SourceAdapter):
 
     def _extract_summary(self, session_data: dict) -> str | None:
         """Extract a summary from session data."""
-        # Try to get title or first message as summary
+        # Try to get name (newer composer format)
+        if session_data.get("name"):
+            return session_data["name"]
+
+        # Try to get title (older format)
         if session_data.get("title"):
             return session_data["title"]
 
+        # Try first message as summary
         messages = session_data.get("messages", [])
         if messages:
             first_msg = messages[0]
@@ -241,6 +296,98 @@ class CursorAdapter(SourceAdapter):
                 return content[:60] + "..." if len(content) > 60 else content
 
         return None
+
+
+    def get_cached_stats(self) -> CachedStats | None:
+        """Get code tracking stats from Cursor's global storage.
+
+        Cursor stores daily code tracking stats in aiCodeTracking.dailyStats keys.
+        Format: {"date": "YYYY-MM-DD", "tabSuggestedLines": N, "tabAcceptedLines": N,
+                 "composerSuggestedLines": N, "composerAcceptedLines": N}
+        """
+        global_db = self.get_global_storage_dir() / "state.vscdb"
+        if not global_db.exists():
+            return None
+
+        try:
+            conn = sqlite3.connect(str(global_db))
+            cursor = conn.cursor()
+
+            # Query for daily stats entries (last 30 days)
+            cursor.execute(
+                "SELECT [key], value FROM ItemTable WHERE [key] LIKE 'aiCodeTracking.dailyStats%'"
+            )
+
+            activity_by_date: dict[str, dict] = {}
+            for key, value in cursor.fetchall():
+                if not value:
+                    continue
+                try:
+                    data = json.loads(value)
+                    date = data.get("date")
+                    if date:
+                        activity_by_date[date] = {
+                            "tab_suggested": data.get("tabSuggestedLines", 0),
+                            "tab_accepted": data.get("tabAcceptedLines", 0),
+                            "composer_suggested": data.get("composerSuggestedLines", 0),
+                            "composer_accepted": data.get("composerAcceptedLines", 0),
+                        }
+                except json.JSONDecodeError:
+                    continue
+
+            conn.close()
+
+            if not activity_by_date:
+                return None
+
+            return CachedStats(activity_by_date=activity_by_date)
+
+        except sqlite3.Error:
+            return None
+
+    def get_code_tracking_stats(self, days: int = 7) -> dict:
+        """Get aggregated code tracking stats for the last N days.
+
+        Returns dict with totals for suggested/accepted lines.
+        """
+        cached = self.get_cached_stats()
+        if not cached or not cached.activity_by_date:
+            return {
+                "tab_suggested": 0,
+                "tab_accepted": 0,
+                "composer_suggested": 0,
+                "composer_accepted": 0,
+                "tab_acceptance_rate": 0,
+                "composer_acceptance_rate": 0,
+            }
+
+        cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+        totals = {
+            "tab_suggested": 0,
+            "tab_accepted": 0,
+            "composer_suggested": 0,
+            "composer_accepted": 0,
+        }
+
+        for date, stats in cached.activity_by_date.items():
+            if date >= cutoff:
+                totals["tab_suggested"] += stats.get("tab_suggested", 0)
+                totals["tab_accepted"] += stats.get("tab_accepted", 0)
+                totals["composer_suggested"] += stats.get("composer_suggested", 0)
+                totals["composer_accepted"] += stats.get("composer_accepted", 0)
+
+        # Calculate acceptance rates
+        if totals["tab_suggested"] > 0:
+            totals["tab_acceptance_rate"] = totals["tab_accepted"] / totals["tab_suggested"] * 100
+        else:
+            totals["tab_acceptance_rate"] = 0
+
+        if totals["composer_suggested"] > 0:
+            totals["composer_acceptance_rate"] = totals["composer_accepted"] / totals["composer_suggested"] * 100
+        else:
+            totals["composer_acceptance_rate"] = 0
+
+        return totals
 
 
 def get_cursor_sessions_for_cwd() -> list[SessionInfo]:

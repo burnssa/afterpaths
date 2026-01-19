@@ -1,6 +1,8 @@
 # Afterpaths
 
-**A unified management layer for your AI coding agents.**
+**Smarter with every session, automatically.**
+
+Extract rules from what worked. Track what didn't. Find the best models for your stack.
 
 You're running Claude Code, Cursor and Codex, but which model actually works best for your stack? What approaches lead to breakthroughs vs. expensive dead ends? How do you stop your agents from making the same mistakes?
 

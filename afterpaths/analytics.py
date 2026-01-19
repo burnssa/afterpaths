@@ -19,11 +19,37 @@ from .sources.base import SessionEntry
 
 @dataclass
 class LLMErrorStats:
-    """Error statistics for an LLM model."""
+    """Error statistics for an LLM model.
 
-    rejections: int = 0  # User rejected tool call before execution
-    failures: int = 0  # Tool execution failed (traceback, etc.)
-    total_tool_calls: int = 0  # Total tool calls for rate calculation
+    Separates general tool calls from code edit operations (Edit/Write)
+    since they have different semantics:
+    - Tool calls: Bash, Read, Glob, etc. - rejections mean user blocked an action
+    - Code edits: Edit, Write - rejections mean user rejected proposed code changes
+    """
+
+    # General tool calls (non-edit operations)
+    tool_calls: int = 0
+    tool_rejections: int = 0
+    tool_failures: int = 0
+
+    # Code edit operations (Edit + Write)
+    edit_calls: int = 0
+    edit_rejections: int = 0
+    edit_failures: int = 0
+
+    # Legacy fields for backward compatibility
+    @property
+    def rejections(self) -> int:
+        return self.tool_rejections + self.edit_rejections
+
+    @property
+    def failures(self) -> int:
+        return self.tool_failures + self.edit_failures
+
+    @property
+    def total_tool_calls(self) -> int:
+        return self.tool_calls + self.edit_calls
+
     # Breakdown by tool name
     rejections_by_tool: dict[str, int] = field(default_factory=dict)
     failures_by_tool: dict[str, int] = field(default_factory=dict)
@@ -87,12 +113,19 @@ class Insights:
     period: str = "7d"
 
 
+# Tools that represent code edit operations
+EDIT_TOOLS = {"Edit", "Write", "NotebookEdit"}
+
+
 def detect_llm_errors(entries: list[SessionEntry]) -> dict[str, LLMErrorStats]:
     """Detect LLM errors from session entries, grouped by model.
 
     Detects:
     - Rejections: User rejected tool call before execution
     - Failures: Tool execution failed (traceback, error codes, etc.)
+
+    Separates code edit operations (Edit/Write/NotebookEdit) from general
+    tool calls (Bash, Read, Glob, etc.) for different analytics.
 
     Also tracks breakdowns by tool name and hour of day.
 
@@ -112,7 +145,13 @@ def detect_llm_errors(entries: list[SessionEntry]) -> dict[str, LLMErrorStats]:
             current_tool = entry.tool_name
             if current_model not in stats_by_model:
                 stats_by_model[current_model] = LLMErrorStats()
-            stats_by_model[current_model].total_tool_calls += 1
+
+            stats = stats_by_model[current_model]
+            # Categorize as edit or general tool call
+            if current_tool in EDIT_TOOLS:
+                stats.edit_calls += 1
+            else:
+                stats.tool_calls += 1
 
         # Detect errors in tool results
         if entry.role == "tool_result" and entry.is_error:
@@ -121,13 +160,19 @@ def detect_llm_errors(entries: list[SessionEntry]) -> dict[str, LLMErrorStats]:
 
             stats = stats_by_model[current_model]
             content_lower = entry.content.lower()
+            is_edit_tool = current_tool in EDIT_TOOLS
 
             # Extract hour from timestamp if available
             hour = _extract_hour(entry.timestamp)
 
             # Check if it's a user rejection
             if "rejected" in content_lower or "doesn't want to proceed" in content_lower:
-                stats.rejections += 1
+                # Categorize rejection by tool type
+                if is_edit_tool:
+                    stats.edit_rejections += 1
+                else:
+                    stats.tool_rejections += 1
+
                 # Track by tool
                 stats.rejections_by_tool[current_tool] = (
                     stats.rejections_by_tool.get(current_tool, 0) + 1
@@ -139,7 +184,12 @@ def detect_llm_errors(entries: list[SessionEntry]) -> dict[str, LLMErrorStats]:
                     )
             # Otherwise it's an execution failure
             else:
-                stats.failures += 1
+                # Categorize failure by tool type
+                if is_edit_tool:
+                    stats.edit_failures += 1
+                else:
+                    stats.tool_failures += 1
+
                 # Track by tool
                 stats.failures_by_tool[current_tool] = (
                     stats.failures_by_tool.get(current_tool, 0) + 1
