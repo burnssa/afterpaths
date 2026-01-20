@@ -41,20 +41,32 @@ Codex            ap summarize──► Session summaries (what happened)
 
 ```bash
 pip install afterpaths
-export ANTHROPIC_API_KEY="sk-ant-..."
 
-# See your recent sessions (Claude Code + Cursor)
+# Navigate to your project (rules are project-specific)
+cd ~/code/your-project
+
+# Run audit to see what you have
+ap audit
+```
+
+The audit shows your sessions across all tools, model performance, and whether you have rules set up. No API key needed.
+
+**From there, the recommended flow:**
+
+```bash
+# 1. Browse sessions and find significant work
 ap log
 
-# Get analytics: tokens, sessions, rejection rates
-ap stats
-ap stats --daily
-
-# Summarize a session (captures discoveries, dead ends, decisions)
+# 2. Summarize important sessions (requires API key)
+export ANTHROPIC_API_KEY="sk-ant-..."
 ap summarize 1
 
-# Extract rules from summaries → .claude/rules/
+# 3. Extract rules from summaries → .claude/rules/
 ap rules
+
+# 4. Track ongoing performance
+ap stats
+ap stats --daily
 ```
 
 > **Tip:** `ap` is the short alias for `afterpaths`. Both work identically.

@@ -187,13 +187,15 @@ def detect_llm_errors(entries: list[SessionEntry]) -> dict[str, LLMErrorStats]:
 
 
 def _extract_hour(timestamp: str | None) -> int | None:
-    """Extract hour (0-23) from ISO timestamp string."""
+    """Extract hour (0-23) from ISO timestamp string in local timezone."""
     if not timestamp:
         return None
     try:
         # Handle various ISO formats
         dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-        return dt.hour
+        # Convert to local timezone
+        local_dt = dt.astimezone()
+        return local_dt.hour
     except (ValueError, AttributeError):
         return None
 

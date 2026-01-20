@@ -178,18 +178,20 @@ def log(show_all, session_type, limit, verbose):
         summary_path = summaries_dir / f"{s.session_id}.md"
         has_summary = summary_path.exists()
 
-        # Show index, type badge, summary indicator, and session ID
+        # Show index, source, type badge, summary indicator, and session ID
+        source_badge = f"[{get_ide_display_name(s.source)}]" if s.source else ""
         type_badge = "[agent]" if s.session_type == "agent" else ""
         summary_badge = "[summarized]" if has_summary else ""
+        badges = " ".join(b for b in [source_badge, type_badge, summary_badge] if b)
 
         # Only number sessions from current project
         is_cwd_session = s.session_id in cwd_session_ids
         if is_cwd_session:
             cwd_index += 1
-            click.echo(f"[{cwd_index}] {s.session_id[:12]}  {type_badge}{summary_badge}")
+            click.echo(f"[{cwd_index}] {s.session_id[:12]}  {badges}")
         else:
             # No number for other projects - show ID only with indent to align
-            click.echo(f"    {s.session_id[:12]}  {type_badge}{summary_badge}")
+            click.echo(f"    {s.session_id[:12]}  {badges}")
 
         # Show model info if verbose
         if verbose:
@@ -1096,19 +1098,23 @@ def _format_stats_display(period: dict, lifetime, days: int, cursor_stats: dict 
 
 
 @cli.command()
-def audit():
-    """Audit your AI coding tools - discover patterns, problems, and opportunities."""
-    from datetime import datetime, timedelta
-    from .sources.base import get_all_adapters
-    from .analytics import detect_llm_errors, EDIT_TOOLS
-    from .stack import detect_stack
+@click.option("--all", "show_all", is_flag=True, help="Show stats across all projects (default: current project only)")
+def audit(show_all):
+    """Audit your AI coding tools - discover patterns, problems, and opportunities.
 
+    By default, shows stats for the current project only. Use --all to see
+    aggregate stats across all projects.
+    """
     click.echo()
-    click.echo(_run_audit())
+    click.echo(_run_audit(show_all=show_all))
 
 
-def _run_audit() -> str:
-    """Run audit and return formatted output."""
+def _run_audit(show_all: bool = False) -> str:
+    """Run audit and return formatted output.
+
+    Args:
+        show_all: If True, show stats across all projects. If False, filter to current project.
+    """
     from datetime import datetime, timedelta
     from .sources.base import get_all_adapters
     from .analytics import detect_llm_errors, EDIT_TOOLS
@@ -1117,12 +1123,21 @@ def _run_audit() -> str:
     lines = []
     box_width = 72
     inner = box_width - 4
+    cwd = str(Path.cwd())
 
     def pad(text: str) -> str:
         return f"│ {text:<{inner}} │"
 
     def header(text: str) -> str:
         return pad(f"─── {text} ───")
+
+    def is_current_project(session) -> bool:
+        """Check if session belongs to current project."""
+        if not session.project:
+            return False
+        # Normalize paths for comparison
+        session_project = str(session.project).rstrip("/")
+        return session_project == cwd or session_project.startswith(cwd + "/")
 
     # Collect data from all adapters
     adapter_stats = {}
@@ -1143,6 +1158,11 @@ def _run_audit() -> str:
     for adapter in get_all_adapters():
         try:
             sessions = adapter.list_sessions()
+
+            # Filter to current project unless --all
+            if not show_all:
+                sessions = [s for s in sessions if is_current_project(s)]
+
             adapter_stats[adapter.name] = {
                 "count": len(sessions),
                 "first_date": None,
@@ -1225,25 +1245,64 @@ def _run_audit() -> str:
     except Exception:
         pass
 
+    # Detect stack(s)
+    detected_stacks = set()
+    if show_all:
+        # Detect stacks for all projects with sessions
+        project_paths = set()
+        for adapter, session in all_sessions:
+            if session.project:
+                project_paths.add(session.project)
+        for project_path in project_paths:
+            project_dir = Path(project_path)
+            if project_dir.exists():
+                detected_stacks.update(detect_stack(project_dir))
+    else:
+        # Current directory only
+        detected_stacks.update(detect_stack(Path.cwd()))
+
     # Check for rules files
-    rules_dirs = [
-        Path.cwd() / ".claude" / "rules",
-        Path.cwd() / ".cursor" / "rules",
-    ]
     rules_found = {}
-    for rules_dir in rules_dirs:
-        if rules_dir.exists():
-            rule_files = list(rules_dir.glob("*.md"))
-            if rule_files:
-                rules_found[rules_dir.parent.name] = len(rule_files)
+    projects_with_rules = set()
+
+    if show_all:
+        # Scan all unique project directories from sessions
+        project_paths = set()
+        for adapter, session in all_sessions:
+            if session.project:
+                project_paths.add(session.project)
+
+        for project_path in project_paths:
+            project_dir = Path(project_path)
+            for rules_subdir in [".claude/rules", ".cursor/rules"]:
+                rules_dir = project_dir / rules_subdir
+                if rules_dir.exists():
+                    # .md for Claude, .mdc for Cursor
+                    rule_files = list(rules_dir.glob("*.md")) + list(rules_dir.glob("*.mdc"))
+                    if rule_files:
+                        tool_name = rules_subdir.split("/")[0]
+                        rules_found[tool_name] = rules_found.get(tool_name, 0) + len(rule_files)
+                        projects_with_rules.add(str(project_dir))
+    else:
+        # Current directory only
+        for rules_subdir in [".claude/rules", ".cursor/rules"]:
+            rules_dir = Path.cwd() / rules_subdir
+            if rules_dir.exists():
+                # .md for Claude, .mdc for Cursor
+                rule_files = list(rules_dir.glob("*.md")) + list(rules_dir.glob("*.mdc"))
+                if rule_files:
+                    tool_name = rules_subdir.split("/")[0]
+                    rules_found[tool_name] = len(rule_files)
 
     # Format output
-    lines.append(f"╭─ Afterpaths Audit {'─' * (box_width - 21)}╮")
+    scope_label = "All Projects" if show_all else "Current Project"
+    lines.append(f"╭─ Afterpaths Audit ({scope_label}) {'─' * (box_width - 24 - len(scope_label))}╮")
     lines.append(pad(""))
 
     # Tools discovered
     if adapter_stats:
-        lines.append(pad("Found session history from AI coding tools:"))
+        scope_desc = "across all projects" if show_all else "for this project"
+        lines.append(pad(f"Sessions {scope_desc}:"))
         for name, stats in adapter_stats.items():
             display_name = get_ide_display_name(name)
             count = stats["count"]
@@ -1254,11 +1313,21 @@ def _run_audit() -> str:
             else:
                 lines.append(pad(f"  {display_name}: {count} {session_label}"))
     else:
-        lines.append(pad("No AI coding tool sessions found."))
-        lines.append(pad(""))
-        lines.append(pad("Afterpaths works with Claude Code, Cursor, and Codex CLI."))
+        if show_all:
+            lines.append(pad("No AI coding tool sessions found."))
+            lines.append(pad(""))
+            lines.append(pad("Afterpaths works with Claude Code, Cursor, and Codex CLI."))
+        else:
+            lines.append(pad("No sessions found for this project."))
+            lines.append(pad(""))
+            lines.append(pad("Try 'ap audit --all' to see sessions across all projects."))
         lines.append(f"╰{'─' * (box_width - 2)}╯")
         return "\n".join(lines)
+
+    # Show detected stack(s)
+    if detected_stacks:
+        stack_label = "Stacks" if len(detected_stacks) > 1 else "Stack"
+        lines.append(pad(f"{stack_label}: {', '.join(sorted(detected_stacks))}"))
 
     lines.append(pad(""))
     lines.append(header("Performance Overview (Last 30 Days)"))
@@ -1389,8 +1458,14 @@ def _run_audit() -> str:
         for tool, count in rules_found.items():
             file_label = "rule file" if count == 1 else "rule files"
             lines.append(pad(f"  {tool}/rules: {count} {file_label}"))
+        if show_all and projects_with_rules:
+            project_label = "project" if len(projects_with_rules) == 1 else "projects"
+            lines.append(pad(f"  (across {len(projects_with_rules)} {project_label})"))
     else:
-        lines.append(pad("No rules files found in this project."))
+        if show_all:
+            lines.append(pad("No rules files found across any projects."))
+        else:
+            lines.append(pad("No rules files found for this project."))
         lines.append(pad(""))
         lines.append(pad("Your agents are at risk of repeating past failures."))
 
