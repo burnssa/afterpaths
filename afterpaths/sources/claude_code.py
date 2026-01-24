@@ -174,8 +174,10 @@ class ClaudeCodeAdapter(SourceAdapter):
         Claude Code uses hyphen-separated paths, e.g.:
         -Users-burnssa-Code-afterpaths -> /Users/burnssa/Code/afterpaths
 
-        Since hyphens can appear in directory names, we try to find a path
-        that actually exists on the filesystem.
+        Since hyphens can appear in directory names AND Claude Code converts
+        underscores to hyphens during encoding, we try to find a path that
+        actually exists on the filesystem, preferring longer segments (single
+        directories) over shorter ones (nested directories).
         """
         if not encoded_name.startswith("-"):
             return encoded_name
@@ -183,19 +185,21 @@ class ClaudeCodeAdapter(SourceAdapter):
         # Remove leading hyphen and split by hyphen
         parts = encoded_name[1:].split("-")
 
-        # Try to find a valid path by greedily joining parts
         def find_valid_path(idx: int, current_path: str) -> str | None:
             if idx >= len(parts):
                 return current_path if Path(current_path).exists() else None
 
-            # Try joining with next part using hyphen (keeping it as folder name)
+            # Try longest segments first, checking both hyphen and underscore variants
+            # This prefers single directories over nested paths
             for end_idx in range(len(parts), idx, -1):
                 segment = "-".join(parts[idx:end_idx])
-                candidate = f"{current_path}/{segment}"
-                if Path(candidate).exists():
-                    result = find_valid_path(end_idx, candidate)
-                    if result:
-                        return result
+                # Try hyphen first (original), then underscore (Claude Code normalizes _ to -)
+                for variant in [segment, segment.replace("-", "_")]:
+                    candidate = f"{current_path}/{variant}"
+                    if Path(candidate).exists():
+                        result = find_valid_path(end_idx, candidate)
+                        if result:
+                            return result
 
             return None
 
@@ -203,7 +207,7 @@ class ClaudeCodeAdapter(SourceAdapter):
         if result:
             return result
 
-        # Fallback: just replace hyphens with slashes
+        # Final fallback: just replace hyphens with slashes
         return "/" + encoded_name[1:].replace("-", "/")
 
     def get_cached_stats(self) -> CachedStats | None:
