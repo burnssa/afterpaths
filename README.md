@@ -8,9 +8,17 @@ You're running Claude Code, Cursor and Codex, but which model actually works bes
 
 Afterpaths gives you a single view across all your AI coding tools: compare what's working, capture discoveries as rules, and guide your agent team away from costly diversions.
 
+![Afterpaths Demo](demo.gif)
+
+**What you're seeing:**
+1. **`ap audit`** — Overview of your sessions, models used, and rule status
+2. **`ap show 5 --raw`** — Raw session transcript (the messy JSONL data, made readable)
+3. **`ap show 5`** — LLM-generated summary extracting discoveries, dead ends, and decisions
+4. **`head .claude/rules/gotchas.md`** — Rules automatically extracted and ready for Claude's next session
+
 ## The Problem
 
-You're managing a team of AI coding agents, but flying blind:
+You're managing multiple agents - retaining critical context and learning from sessions is painful:
 
 - **Repeated mistakes** — Your agents hit the same gotchas. Three weeks later, same dead end, same wasted tokens.
 - **No cross-tool visibility** — Is Opus actually better than Sonnet for your codebase? Is Cursor outperforming Claude Code? You're guessing.
@@ -75,23 +83,35 @@ See [docs/commands.md](docs/commands.md) for the full command reference and reci
 
 ## From Session to Rules
 
-**A 2-day auth outage becomes a rule that prevents the next one:**
+**Real example: A bug causing 76 missing sessions became a rule that prevents the same mistake.**
+
+While building afterpaths, sessions for a project weren't showing up. The path `/Users/Code/hex_line_assignment` was being decoded as `/Users/Code/hex/line/assignment`. After investigation, we discovered Claude Code uses lossy path encoding—both `/` and `_` become `-`.
+
+**The summary captured the discovery:**
 
 ```markdown
-# Dead Ends: What Not to Try
+## Discoveries
 
-- **Restrictive Auth0 callback detection**: Don't require both 'code' AND
-  'state' URL parameters—Auth0 sometimes omits 'state'. This exact pattern
-  caused a 2-day production outage. Use `urlParams.has('code')` alone.
-  _Source: session 8a3f2c91_
-
-- **Silent callback error handling**: Don't catch Auth0 callback errors and
-  redirect to home. Users end up in login loops. Implement error-specific
-  recovery logic instead.
-  _Source: session 8a3f2c91_
+- **Claude Code's path encoding is lossy**: Project paths in `~/.claude/projects/`
+  are encoded by replacing `/` with `-`, but underscores are ALSO converted to
+  hyphens. Three different paths encode identically:
+  - `/Users/Code/foo_bar` → `-Users-Code-foo-bar`
+  - `/Users/Code/foo-bar` → `-Users-Code-foo-bar`
+  - `/Users/Code/foo/bar` → `-Users-Code-foo-bar`
 ```
 
-Claude Code automatically loads all `.md` files from `.claude/rules/` into context. Next time you're working on auth, Claude already knows what not to try.
+**`ap rules` extracted it into `.claude/rules/gotchas.md`:**
+
+```markdown
+- **Claude Code lossy path encoding**: Claude Code encodes project paths by
+  replacing both `/` and `_` with `-`, making them indistinguishable when
+  decoding. When decoding, try underscore variants alongside hyphen variants
+  at each greedy step, preferring longer segments (single directories) over
+  nested paths.
+  _Source: 91b1ffbc_
+```
+
+Next time Claude works on path decoding in this codebase, it already knows about the lossy encoding—no need to rediscover it.
 
 ## Why Afterpaths
 
@@ -122,27 +142,12 @@ Each rule includes source session references so you can trace back to the origin
 | Cursor | ✅ Ready | `~/Library/Application Support/Cursor/User/workspaceStorage/` |
 | Codex CLI | ✅ Ready | `~/.codex/` |
 
-## The Vault (Coming Soon)
-
-Share and discover rule sets from the community:
-
-```bash
-# Install community rules for your stack
-afterpaths vault install fastapi-production
-
-# Share your learnings
-afterpaths rules publish
-```
-
-Popular rule sets surface through community upvotes. Your hard-won discoveries help others avoid the same pitfalls.
-
 ## Privacy
 
 - **All local** — Summaries and rules stay in your project
 - **Your API key** — Uses your Anthropic/OpenAI key
 - **Read-only** — Never modifies your source code
 - **Gitignored** — `.afterpaths/` excluded by default
-- **Optional sharing** — Vault publishing is explicit opt-in
 
 ## Storage
 
@@ -168,7 +173,6 @@ your-project/
 - [x] Automatic rule extraction
 - [x] Multi-target export (Claude, Cursor)
 - [x] Codex CLI support
-- [ ] Rule Vault (community rule sharing)
 - [ ] Semantic search across sessions
 - [ ] Benchmarking and productivity insights
 
