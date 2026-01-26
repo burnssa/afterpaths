@@ -85,7 +85,7 @@ See [docs/commands.md](docs/commands.md) for the full command reference and reci
 
 **Real example: A bug causing 76 missing sessions became a rule that prevents the same mistake.**
 
-While building afterpaths, sessions for a project weren't showing up. The path `/Users/Code/hex_line_assignment` was being decoded as `/Users/Code/hex/line/assignment`. After investigation, we discovered Claude Code uses lossy path encoding—both `/` and `_` become `-`.
+While building afterpaths, sessions for a project weren't showing up. The path (let's call it) `/Users/Code/foo_bar` was being decoded as `/Users/Code/foo/bar`. After investigation, we discovered Claude Code uses lossy path encoding—both `/` and `_` become `-`.
 
 **The summary captured the discovery:**
 
