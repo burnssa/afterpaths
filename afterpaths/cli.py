@@ -131,7 +131,8 @@ def cli(ctx):
               help="Filter by session type (default: main)")
 @click.option("--limit", default=10, help="Number of sessions to show")
 @click.option("-v", "--verbose", is_flag=True, help="Show additional info (model used)")
-def log(show_all, session_type, limit, verbose):
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+def log(show_all, session_type, limit, verbose, as_json):
     """List recent AI coding sessions.
 
     By default, only shows main sessions (full conversations).
@@ -154,6 +155,13 @@ def log(show_all, session_type, limit, verbose):
 
     if not all_sessions:
         click.echo(f"No {session_type} sessions found. Try --type=all to see all session types.")
+        return
+
+    # JSON output mode
+    if as_json:
+        import json as json_module
+        from .serializers import serialize_session_list
+        click.echo(json_module.dumps(serialize_session_list(all_sessions[:limit]), indent=2))
         return
 
     # Build set of current project session IDs for quick lookup
@@ -235,7 +243,8 @@ def log(show_all, session_type, limit, verbose):
 @click.option("--type", "session_type", type=click.Choice(["main", "agent", "all"]), default="main",
               help="Filter by session type (must match 'log' filter for number refs)")
 @click.option("--limit", default=50, help="Limit entries shown in raw mode")
-def show(session_ref, raw, session_type, limit):
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+def show(session_ref, raw, session_type, limit, as_json):
     """Show session summary or transcript.
 
     SESSION_REF can be a session number (from 'log' output) or a session ID prefix.
@@ -248,10 +257,98 @@ def show(session_ref, raw, session_type, limit):
         click.echo("Use 'afterpaths log' to see available sessions.")
         return
 
+    if as_json:
+        import json as json_module
+        from .serializers import serialize_summary, serialize_session_info, serialize_session_entry
+
+        if raw:
+            adapter = _get_adapter_for_session(session)
+            entries = adapter.read_session(session)
+            data = {
+                **serialize_session_info(session),
+                "entries": [serialize_session_entry(e) for e in entries[:limit]],
+                "total_entries": len(entries),
+            }
+        else:
+            afterpaths_dir = get_afterpaths_dir()
+            summary_path = afterpaths_dir / "summaries" / f"{session.session_id}.md"
+            summary_content = summary_path.read_text() if summary_path.exists() else None
+            data = serialize_summary(session, summary_content)
+
+        click.echo(json_module.dumps(data, indent=2))
+        return
+
     if raw:
         _show_raw_transcript(session, limit)
     else:
         _show_summary(session)
+
+
+@cli.command()
+@click.argument("query")
+@click.option("--deep", is_flag=True, help="Also search transcripts (slower)")
+@click.option("--all", "show_all", is_flag=True, help="Search all projects")
+@click.option("--regex", "use_regex", is_flag=True, help="Treat query as regex")
+@click.option("--case-sensitive", is_flag=True, help="Case-sensitive search")
+@click.option("--limit", default=20, help="Maximum results to show")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+def search(query, deep, show_all, use_regex, case_sensitive, limit, as_json):
+    """Search across session summaries and transcripts.
+
+    Searches afterpaths summaries by default. Use --deep to also search
+    raw transcripts for sessions without summary matches.
+
+    Examples:
+        ap search "paper recommendations"
+        ap search "database schema" --deep
+        ap search "RidgeCV" --all --json
+        ap search "class \\w+Error" --regex
+    """
+    from .search import search_combined, serialize_search_result
+
+    sessions = list_all_sessions() if show_all else get_sessions_for_cwd()
+
+    if not sessions:
+        click.echo("No sessions found." + (" Try --all to see all projects." if not show_all else ""))
+        return
+
+    # Only search main sessions
+    sessions = [s for s in sessions if s.session_type == "main"]
+
+    result = search_combined(
+        query, sessions, deep=deep,
+        case_sensitive=case_sensitive, regex=use_regex,
+        max_results=limit,
+    )
+
+    if as_json:
+        import json as json_module
+        click.echo(json_module.dumps(serialize_search_result(result), indent=2))
+        return
+
+    # Formatted output
+    mode_label = "deep search" if deep else "summary search"
+    click.echo(f"Found {result.total_matches} match(es) across {result.sessions_searched} sessions ({mode_label}, {result.time_ms}ms)")
+
+    if not result.matches:
+        if not deep:
+            click.echo("Try --deep to also search raw transcripts.")
+        return
+
+    click.echo()
+
+    seen_sessions = set()
+    for match in result.matches:
+        sid = match.session.session_id
+        date_str = match.session.modified.strftime("%Y-%m-%d")
+
+        # Show session header only once per session
+        if sid not in seen_sessions:
+            seen_sessions.add(sid)
+            click.echo(f"[{sid[:12]}] {date_str} ({match.session.size // 1024}KB)")
+
+        click.echo(f"  [{match.location}] {match.context}")
+        click.echo()
 
 
 def _get_adapter_for_session(session):

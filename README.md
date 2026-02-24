@@ -37,6 +37,7 @@ Claude Code  ──► ap log      ──► Browse sessions across IDEs
 Cursor           ap stats    ──► Analytics: tokens, activity, errors
 Codex            ap summarize──► Session summaries (what happened)
                  ap rules    ──► Rule files (what to remember)
+                 ap search   ──► Find past discussions & discoveries
                                     │
                                     ▼
                            .claude/rules/ · .cursor/rules/
@@ -72,12 +73,18 @@ ap summarize 1
 # 3. Extract rules from summaries → .claude/rules/
 ap rules
 
-# 4. Track ongoing performance
+# 4. Search across past sessions
+ap search "database schema"
+ap search "auth" --deep    # also search raw transcripts
+
+# 5. Track ongoing performance
 ap stats
 ap stats --daily
 ```
 
 > **Tip:** `ap` is the short alias for `afterpaths`. Both work identically.
+
+All commands support `--json` for structured output (e.g., `ap log --json`, `ap show 1 --json`, `ap search "query" --json`).
 
 See [docs/commands.md](docs/commands.md) for the full command reference and recipes.
 
@@ -142,6 +149,33 @@ Each rule includes source session references so you can trace back to the origin
 | Cursor | ✅ Ready | `~/Library/Application Support/Cursor/User/workspaceStorage/` |
 | Codex CLI | ✅ Ready | `~/.codex/` |
 
+## MCP Server
+
+Afterpaths includes an MCP server that puts session history directly into your agent's tool list. Instead of relying on agents to discover the CLI, the MCP server makes session search, summaries, and rules available as native tools.
+
+```bash
+# Install with MCP support
+pip install afterpaths[mcp]
+
+# Add to Claude Code
+claude mcp add afterpaths -- afterpaths-mcp
+
+# Or run directly
+python -m afterpaths.mcp_server
+```
+
+**Tools exposed:**
+
+| Tool | Description |
+|------|-------------|
+| `afterpaths_list_sessions` | List recent sessions for context recovery |
+| `afterpaths_show_session` | Read session summaries and transcripts |
+| `afterpaths_summarize` | Generate summaries for sessions |
+| `afterpaths_search` | Search across past sessions |
+| `afterpaths_get_rules` | Get extracted rules (dead ends, decisions, etc.) |
+
+Once configured, agents can ask "have we seen this before?" or "what were the dead ends?" and get answers from your session history.
+
 ## Privacy
 
 - **All local** — Summaries and rules stay in your project
@@ -173,6 +207,9 @@ your-project/
 - [x] Automatic rule extraction
 - [x] Multi-target export (Claude, Cursor)
 - [x] Codex CLI support
+- [x] Cross-session search (`ap search`)
+- [x] JSON output (`--json` flag)
+- [x] MCP server for agent integration
 - [ ] Semantic search across sessions
 - [ ] Benchmarking and productivity insights
 
@@ -183,3 +220,5 @@ MIT
 ---
 
 *Manage your AI coding agents. Learn what works. Stop repeating mistakes.*
+
+<!-- mcp-name: io.github.burnssa/afterpaths -->
