@@ -20,17 +20,16 @@
       },
       "runtimeArguments": [
         {
+          "type": "named",
           "name": "--from",
           "description": "Install afterpaths with MCP extras",
-          "isRequired": true,
           "value": "afterpaths[mcp]"
         }
       ],
       "packageArguments": [
         {
-          "name": "command",
+          "type": "positional",
           "description": "Run the MCP server entry point",
-          "isRequired": true,
           "value": "afterpaths-mcp"
         }
       ],
