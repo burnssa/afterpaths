@@ -1,16 +1,18 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.burnssa/afterpaths",
-  "description": "Session memory for AI coding agents. Search past conversations, extract reusable rules from discoveries and dead ends, and track what works across Claude Code, Cursor, and Codex.",
+  "description": "Session memory for AI coding agents. Search past sessions, extract rules, and track what works.",
   "version": "0.2.2",
   "title": "Afterpaths",
   "repository": {
     "url": "https://github.com/burnssa/afterpaths.git",
     "source": "github"
   },
-  "icons": {
-    "default": "https://raw.githubusercontent.com/burnssa/public-assets/main/superjective-logo-fixed-logo-only.png"
-  },
+  "icons": [
+    {
+      "src": "https://raw.githubusercontent.com/burnssa/public-assets/main/superjective-logo-fixed-logo-only.png"
+    }
+  ],
   "websiteUrl": "https://github.com/burnssa/afterpaths",
   "packages": [
     {
