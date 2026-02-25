@@ -1212,6 +1212,8 @@ def _run_audit(show_all: bool = False) -> str:
     Args:
         show_all: If True, show stats across all projects. If False, filter to current project.
     """
+    import shutil
+    import subprocess
     from datetime import datetime, timedelta
     from .sources.base import get_all_adapters
     from .analytics import detect_llm_errors, EDIT_TOOLS
@@ -1566,28 +1568,56 @@ def _run_audit(show_all: bool = False) -> str:
         lines.append(pad(""))
         lines.append(pad("Your agents are at risk of repeating past failures."))
 
+    # MCP registration check
+    mcp_registered = None  # None = claude not found, True/False = check result
+    claude_path = shutil.which("claude")
+    if claude_path:
+        try:
+            # Strip CLAUDECODE env var to avoid nesting error
+            env = {k: v for k, v in __import__("os").environ.items() if k != "CLAUDECODE"}
+            result = subprocess.run(
+                ["claude", "mcp", "get", "afterpaths"],
+                capture_output=True, text=True, timeout=5, env=env,
+            )
+            mcp_registered = result.returncode == 0
+        except Exception:
+            pass  # Treat failures as unknown
+
     # Recommendations
     lines.append(pad(""))
     lines.append(header("Recommended Next Steps"))
     lines.append(pad(""))
 
+    step = 1
+
+    # MCP registration recommendation (first if not registered)
+    if mcp_registered is False:
+        lines.append(pad(f"{step}. Connect afterpaths to Claude Code via MCP:"))
+        lines.append(pad("   $ claude mcp add --scope user afterpaths -- afterpaths-mcp"))
+        lines.append(pad(""))
+        step += 1
+
     if not rules_found:
-        lines.append(pad("1. Summarize your longest session to preserve discoveries:"))
+        lines.append(pad(f"{step}. Summarize your longest session to preserve discoveries:"))
         lines.append(pad("   $ ap summarize 1"))
         lines.append(pad(""))
-        lines.append(pad("2. Generate rules from your summaries:"))
+        step += 1
+        lines.append(pad(f"{step}. Generate rules from your summaries:"))
         lines.append(pad("   $ ap rules"))
         lines.append(pad(""))
-        lines.append(pad("3. Browse your session history:"))
+        step += 1
+        lines.append(pad(f"{step}. Browse your session history:"))
         lines.append(pad("   $ ap log"))
     else:
-        lines.append(pad("1. Browse sessions and find ones worth summarizing:"))
+        lines.append(pad(f"{step}. Browse sessions and find ones worth summarizing:"))
         lines.append(pad("   $ ap log"))
         lines.append(pad(""))
-        lines.append(pad("2. Summarize to preserve discoveries:"))
+        step += 1
+        lines.append(pad(f"{step}. Summarize to preserve discoveries:"))
         lines.append(pad("   $ ap summarize <session_number>"))
         lines.append(pad(""))
-        lines.append(pad("3. Update rules with new discoveries:"))
+        step += 1
+        lines.append(pad(f"{step}. Update rules with new discoveries:"))
         lines.append(pad("   $ ap rules"))
 
     lines.append(pad(""))
