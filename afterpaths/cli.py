@@ -819,7 +819,8 @@ def files(session_ref, session_type):
 @click.option("--dry-run", is_flag=True, help="Preview without writing files")
 @click.option("--target", type=click.Choice(["claude", "cursor", "all"]), default="all",
               help="Export target (default: all detected)")
-def rules(days, rebuild, dry_run, target):
+@click.option("--force", is_flag=True, help="Overwrite files even if they contain unmanaged content")
+def rules(days, rebuild, dry_run, target, force):
     """Extract rules from session summaries for AI coding assistants.
 
     Analyzes your session summaries and automatically generates rule files
@@ -828,12 +829,18 @@ def rules(days, rebuild, dry_run, target):
     Turn your hard-won discoveries into persistent guidance—no more manually
     writing CLAUDE.md rules after every painful debugging session.
 
+    Rule files are split into a manual section (preserved across runs, wrapped
+    in `<!-- afterpaths:manual:start -->` / `<!-- afterpaths:manual:end -->`)
+    and an auto section (regenerated each run). Content outside those markers
+    is treated as unmanaged and blocks the run unless --force is passed.
+
     Examples:
         afterpaths rules                    # Extract and export to all targets
         afterpaths rules --days=30          # Include last 30 days
         afterpaths rules --target=claude    # Only export to Claude Code
         afterpaths rules --rebuild          # Rebuild from scratch
         afterpaths rules --dry-run          # Preview without writing
+        afterpaths rules --force            # Overwrite unmanaged content
     """
     from .rules import run_extract_rules
     from .llm import get_provider_info
@@ -851,6 +858,7 @@ def rules(days, rebuild, dry_run, target):
             rebuild=rebuild,
             dry_run=dry_run,
             target=target if target != "all" else None,
+            force=force,
         )
     except ImportError as e:
         click.echo(f"Missing dependency: {e}")
@@ -878,6 +886,27 @@ def rules(days, rebuild, dry_run, target):
         click.echo("No actionable rules could be extracted from summaries.")
         return
 
+    if result.status == "unmanaged_content":
+        click.echo("Aborted: the following rule files contain content outside the managed markers:")
+        click.echo()
+        for path in result.unmanaged_files:
+            try:
+                rel = path.relative_to(Path.cwd())
+                click.echo(f"  - {rel}")
+            except ValueError:
+                click.echo(f"  - {path}")
+        click.echo()
+        click.echo("Afterpaths only regenerates content inside these markers:")
+        click.echo("  <!-- afterpaths:auto:start --> ... <!-- afterpaths:auto:end -->")
+        click.echo()
+        click.echo("To keep your edits, wrap them in the manual markers:")
+        click.echo("  <!-- afterpaths:manual:start -->")
+        click.echo("  (your notes here — preserved across runs)")
+        click.echo("  <!-- afterpaths:manual:end -->")
+        click.echo()
+        click.echo("Or re-run with --force to overwrite.")
+        return
+
     click.echo(f"Processed {result.sessions_processed} session(s)")
     click.echo(f"Extracted {result.rules_extracted} new rule(s)")
     click.echo(f"Total rules after merge: {result.rules_after_merge}")
@@ -892,6 +921,15 @@ def rules(days, rebuild, dry_run, target):
                     click.echo(f"  - {rel}")
                 except ValueError:
                     click.echo(f"  - {path}")
+
+        if result.migrated_files:
+            click.echo()
+            count = len(result.migrated_files)
+            file_word = "file" if count == 1 else "files"
+            click.echo(f"Inserted manual-section markers in {count} {file_word}.")
+            click.echo("Edit between `<!-- afterpaths:manual:start -->` and `<!-- afterpaths:manual:end -->`")
+            click.echo("to add notes that survive future `ap rules` runs.")
+
         click.echo()
         click.echo("Rules will be automatically loaded by your AI coding assistant.")
     elif dry_run:

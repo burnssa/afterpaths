@@ -2,7 +2,7 @@
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -14,16 +14,14 @@ from .storage import get_afterpaths_dir, get_meta, save_meta
 class RulesResult:
     """Result of a rules extraction run."""
 
-    status: str  # success, no_summaries, no_new_summaries, error
+    status: str  # success, no_summaries, no_new_summaries, no_rules_extracted, unmanaged_content, error
     rules_extracted: int = 0
     rules_after_merge: int = 0
     sessions_processed: int = 0
-    export_results: list = None
+    export_results: list = field(default_factory=list)
     error: str | None = None
-
-    def __post_init__(self):
-        if self.export_results is None:
-            self.export_results = []
+    unmanaged_files: list[Path] = field(default_factory=list)
+    migrated_files: list[Path] = field(default_factory=list)
 
 
 EXTRACTION_PROMPT = """Extract actionable rules from these session summaries for an AI coding assistant.
@@ -361,6 +359,7 @@ def run_extract_rules(
     dry_run: bool = False,
     target: str | None = None,
     project_root: Path | None = None,
+    force: bool = False,
 ) -> RulesResult:
     """Main rules extraction logic.
 
@@ -370,6 +369,7 @@ def run_extract_rules(
         dry_run: Preview without writing files
         target: Specific export target (None = all detected)
         project_root: Project root directory (defaults to cwd)
+        force: Overwrite files even if they contain unmanaged content
 
     Returns:
         RulesResult with details of what was done
@@ -435,12 +435,28 @@ def run_extract_rules(
     rules_extracted = sum(len(r) for r in extracted.values()) if extracted else 0
     rules_after_merge = sum(len(r) for r in merged.values())
 
-    # 8. Export to targets
+    # 8. Pre-write safety check — refuse to clobber unmanaged content
+    if not force:
+        unmanaged_files: list[Path] = []
+        for exporter in exporters:
+            unmanaged_files.extend(exporter.check_unmanaged(project_root))
+        if unmanaged_files:
+            return RulesResult(
+                status="unmanaged_content",
+                rules_extracted=rules_extracted,
+                rules_after_merge=rules_after_merge,
+                sessions_processed=len(summaries),
+                unmanaged_files=unmanaged_files,
+            )
+
+    # 9. Export to targets
     export_results = []
+    migrated_files: list[Path] = []
     if not dry_run:
         for exporter in exporters:
             result = exporter.export(merged, project_root)
             export_results.append(result)
+            migrated_files.extend(result.migrated_files)
 
         # Update metadata
         all_session_ids = [sid for sid, _, _ in summaries]
@@ -452,4 +468,5 @@ def run_extract_rules(
         rules_after_merge=rules_after_merge,
         sessions_processed=len(summaries),
         export_results=export_results,
+        migrated_files=migrated_files,
     )
