@@ -96,6 +96,7 @@ def _find_session(session_ref: str, session_type: str = "main"):
 
 
 @click.group(invoke_without_command=True)
+@click.version_option(package_name="afterpaths", prog_name="afterpaths")
 @click.pass_context
 def cli(ctx):
     """Afterpaths: Smarter with every session, automatically.
