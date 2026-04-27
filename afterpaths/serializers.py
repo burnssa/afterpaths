@@ -50,3 +50,14 @@ def serialize_session_entry(entry: SessionEntry) -> dict:
         "is_error": entry.is_error,
         "model": entry.model,
     }
+
+
+def serialize_artifact(artifact) -> dict:
+    """Serialize an Artifact to a JSON-compatible dict."""
+    return {
+        "file_path": artifact.file_path,
+        "operation": artifact.operation,
+        "timestamp": artifact.timestamp,
+        "triggering_user_message": artifact.triggering_user_message,
+        "reference_files": artifact.reference_files,
+    }

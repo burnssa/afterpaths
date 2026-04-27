@@ -118,7 +118,57 @@ def afterpaths_show_session(
                 entries = adapter.read_session(session)
                 result["entries"] = [serialize_session_entry(e) for e in entries[:entry_limit]]
                 result["total_entries"] = len(entries)
+                if not entries and session.source == "cursor":
+                    result["warning"] = (
+                        "Cursor session returned 0 entries. The adapter does not yet parse "
+                        "this session's chat/composer storage format. See the afterpaths "
+                        "README (Known Limitations) for context."
+                    )
 
+        return result
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@mcp.tool()
+def afterpaths_show_artifacts(session_id: str) -> dict:
+    """Show the artifacts ledger for a session — every file written/edited with provenance.
+
+    Use this to answer "where did this file come from?" or "what did this
+    session build?" without re-reading the full transcript. Each artifact
+    carries the user message that triggered the write and the reference
+    files read beforehand.
+
+    Args:
+        session_id: Session ID or prefix (e.g., "a410a860").
+    """
+    try:
+        from .serializers import serialize_session_info, serialize_artifact
+        from .sources.base import get_all_adapters
+        from .file_tracking import extract_artifacts
+
+        session = _find_session_by_id(session_id)
+        if not session:
+            return {"error": f"Session not found: {session_id}"}
+
+        adapters = {a.name: a for a in get_all_adapters()}
+        adapter = adapters.get(session.source)
+        if not adapter:
+            return {"error": f"No adapter for source: {session.source}"}
+
+        entries = adapter.read_session(session)
+        artifacts = extract_artifacts(entries)
+
+        result = {
+            **serialize_session_info(session),
+            "artifacts": [serialize_artifact(a) for a in artifacts],
+            "total_artifacts": len(artifacts),
+        }
+        if not entries and session.source == "cursor":
+            result["warning"] = (
+                "Cursor session returned 0 entries. The adapter does not yet parse "
+                "this session's chat/composer storage format."
+            )
         return result
     except Exception as e:
         return {"error": str(e)}
@@ -215,11 +265,14 @@ def afterpaths_search(
     Use when you need to check "have we seen this before?", find previous
     discussions about a topic, or locate sessions relevant to the current task.
 
-    Searches summaries by default. Use deep=True to also search raw transcripts.
+    Searches summaries by default. When deep=False returns zero summary matches,
+    automatically falls through to transcript search on un-summarized sessions —
+    the result includes auto_expanded=True when this happens. Pass deep=True to
+    search transcripts of every session regardless of summary hits.
 
     Args:
         query: Search query (text or regex pattern).
-        deep: Also search raw transcripts (slower).
+        deep: Also search raw transcripts (slower). Auto-escalated on 0 summary hits.
         project: Filter to specific project path. None = current directory.
         regex: Treat query as regex pattern.
         case_sensitive: Use case-sensitive matching (default False).

@@ -28,6 +28,73 @@ class SessionFileActivity:
     modifications: list[FileModification]
 
 
+@dataclass
+class Artifact:
+    """A file write/edit captured with its provenance.
+
+    Unlike FileModification (which is just path+op+time), an Artifact carries
+    the user message that triggered the change and the reference files read
+    between that message and the write — enough to answer "where did this
+    file come from?" without re-reading the raw transcript.
+    """
+
+    file_path: str
+    operation: str  # 'write', 'edit', 'notebook_edit'
+    timestamp: str | None
+    triggering_user_message: str | None
+    reference_files: list[str]
+
+
+def extract_artifacts(entries: list[SessionEntry], message_char_limit: int = 500) -> list[Artifact]:
+    """Build a chronological artifacts ledger from session entries.
+
+    For each file write/edit, captures the most recent user message before it
+    and any files read since that message (the "reference context" the write
+    was built from).
+    """
+    artifacts: list[Artifact] = []
+    last_user_msg: str | None = None
+    reads_since_user_msg: list[str] = []
+
+    for entry in entries:
+        if entry.role == "user" and not entry.tool_name:
+            content = entry.content or ""
+            if message_char_limit and len(content) > message_char_limit:
+                content = content[:message_char_limit] + "..."
+            last_user_msg = content
+            reads_since_user_msg = []
+            continue
+
+        if not entry.tool_name or not entry.tool_input:
+            continue
+
+        tool = entry.tool_name.lower()
+        inputs = entry.tool_input
+
+        if tool == "read":
+            file_path = inputs.get("file_path")
+            if file_path:
+                normalized = _normalize_path(file_path)
+                if normalized not in reads_since_user_msg:
+                    reads_since_user_msg.append(normalized)
+            continue
+
+        if tool in ("write", "edit", "notebookedit"):
+            file_path = inputs.get("file_path") or inputs.get("notebook_path")
+            if not file_path:
+                continue
+            operation = "notebook_edit" if tool == "notebookedit" else tool
+            artifacts.append(Artifact(
+                file_path=_normalize_path(file_path),
+                operation=operation,
+                timestamp=entry.timestamp,
+                triggering_user_message=last_user_msg,
+                reference_files=list(reads_since_user_msg),
+            ))
+
+    return artifacts
+
+
 def extract_file_activity(entries: list[SessionEntry], session: SessionInfo) -> SessionFileActivity:
     """Extract file modification activity from session entries."""
     modifications = []

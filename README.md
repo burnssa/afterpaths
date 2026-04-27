@@ -146,8 +146,22 @@ Each rule includes source session references so you can trace back to the origin
 | Tool | Status | Location |
 |------|--------|----------|
 | Claude Code | ✅ Ready | `~/.claude/projects/*.jsonl` |
-| Cursor | ✅ Ready | `~/Library/Application Support/Cursor/User/workspaceStorage/` |
+| Cursor | ⚠️ Partial | `~/Library/Application Support/Cursor/User/workspaceStorage/` |
 | Codex CLI | ✅ Ready | `~/.codex/` |
+
+### Known Limitations
+
+**Cursor sessions:** the adapter reads several known chat/composer formats from
+`state.vscdb` (including `workbench.panel.aichat.view.aichat.chatdata`,
+`composer.composerData`, and `allComposers`), but Cursor changes its storage
+schema often and some sessions will return `Entries: 0` even when the
+`state.vscdb` file is present. When this happens, `ap show <ref> --raw` and the
+`afterpaths_show_session` MCP tool emit a warning rather than silently
+returning empty. The raw file is untouched — if you need that session, opening
+`state.vscdb` directly with `sqlite3` will still work.
+
+Tool provenance features (`ap show --artifacts`, commit tracing, file
+activity) only cover sessions whose entries the adapter can read.
 
 ## MCP Server
 
@@ -170,8 +184,9 @@ python -m afterpaths.mcp_server
 |------|-------------|
 | `afterpaths_list_sessions` | List recent sessions for context recovery |
 | `afterpaths_show_session` | Read session summaries and transcripts |
+| `afterpaths_show_artifacts` | Show artifacts ledger: files written/edited with provenance |
 | `afterpaths_summarize` | Generate summaries for sessions |
-| `afterpaths_search` | Search across past sessions |
+| `afterpaths_search` | Search across past sessions (auto-escalates to transcripts on 0 summary hits) |
 | `afterpaths_get_rules` | Get extracted rules (dead ends, decisions, etc.) |
 
 Once configured, agents can ask "have we seen this before?" or "what were the dead ends?" and get answers from your session history.

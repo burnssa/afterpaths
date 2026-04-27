@@ -240,16 +240,25 @@ def log(show_all, session_type, limit, verbose, as_json):
 @cli.command()
 @click.argument("session_ref")
 @click.option("--raw", is_flag=True, help="Show raw transcript instead of summary")
+@click.option("--artifacts", is_flag=True, help="Show artifacts ledger (files written/edited with provenance)")
 @click.option("--type", "session_type", type=click.Choice(["main", "agent", "all"]), default="main",
               help="Filter by session type (must match 'log' filter for number refs)")
 @click.option("--limit", default=50, help="Limit entries shown in raw mode")
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON")
-def show(session_ref, raw, session_type, limit, as_json):
-    """Show session summary or transcript.
+def show(session_ref, raw, artifacts, session_type, limit, as_json):
+    """Show session summary, transcript, or artifacts ledger.
 
     SESSION_REF can be a session number (from 'log' output) or a session ID prefix.
     Numbers reference current project sessions; use ID prefix for other projects.
+
+    --artifacts shows a chronological list of every file written/edited, along
+    with the user message that triggered each write and the reference files
+    read beforehand. Use this to answer "where did this file come from?".
     """
+    if raw and artifacts:
+        click.echo("--raw and --artifacts are mutually exclusive.", err=True)
+        return
+
     session = _find_session(session_ref, session_type)
 
     if not session:
@@ -259,9 +268,22 @@ def show(session_ref, raw, session_type, limit, as_json):
 
     if as_json:
         import json as json_module
-        from .serializers import serialize_summary, serialize_session_info, serialize_session_entry
+        from .serializers import (
+            serialize_summary, serialize_session_info,
+            serialize_session_entry, serialize_artifact,
+        )
 
-        if raw:
+        if artifacts:
+            from .file_tracking import extract_artifacts
+            adapter = _get_adapter_for_session(session)
+            entries = adapter.read_session(session)
+            artifact_list = extract_artifacts(entries)
+            data = {
+                **serialize_session_info(session),
+                "artifacts": [serialize_artifact(a) for a in artifact_list],
+                "total_artifacts": len(artifact_list),
+            }
+        elif raw:
             adapter = _get_adapter_for_session(session)
             entries = adapter.read_session(session)
             data = {
@@ -269,6 +291,8 @@ def show(session_ref, raw, session_type, limit, as_json):
                 "entries": [serialize_session_entry(e) for e in entries[:limit]],
                 "total_entries": len(entries),
             }
+            if not entries and session.source == "cursor":
+                data["warning"] = _cursor_empty_warning()
         else:
             afterpaths_dir = get_afterpaths_dir()
             summary_path = afterpaths_dir / "summaries" / f"{session.session_id}.md"
@@ -278,7 +302,9 @@ def show(session_ref, raw, session_type, limit, as_json):
         click.echo(json_module.dumps(data, indent=2))
         return
 
-    if raw:
+    if artifacts:
+        _show_artifacts(session)
+    elif raw:
         _show_raw_transcript(session, limit)
     else:
         _show_summary(session)
@@ -327,11 +353,16 @@ def search(query, deep, show_all, use_regex, case_sensitive, limit, as_json):
         return
 
     # Formatted output
-    mode_label = "deep search" if deep else "summary search"
+    if result.auto_expanded:
+        mode_label = "auto-deep (0 summary hits)"
+    elif deep:
+        mode_label = "deep search"
+    else:
+        mode_label = "summary search"
     click.echo(f"Found {result.total_matches} match(es) across {result.sessions_searched} sessions ({mode_label}, {result.time_ms}ms)")
 
     if not result.matches:
-        if not deep:
+        if not deep and not result.auto_expanded:
             click.echo("Try --deep to also search raw transcripts.")
         return
 
@@ -361,6 +392,16 @@ def _get_adapter_for_session(session):
     return ClaudeCodeAdapter()
 
 
+def _cursor_empty_warning() -> str:
+    """Message shown when a Cursor session's raw read returns 0 entries."""
+    return (
+        "Cursor session returned 0 entries. This usually means the session uses a "
+        "chat/composer storage format that afterpaths' Cursor adapter does not yet "
+        "parse. The raw state.vscdb file is still present on disk — see the Known "
+        "Limitations section in the afterpaths README for context."
+    )
+
+
 def _show_raw_transcript(session, limit):
     """Display raw transcript entries."""
     from .git_refs import extract_all_git_refs, format_refs_for_display
@@ -381,6 +422,11 @@ def _show_raw_transcript(session, limit):
     click.echo(f"Git refs: {format_refs_for_display(refs)}")
     click.echo("-" * 60)
 
+    if not entries and session.source == "cursor":
+        click.echo()
+        click.echo(f"Note: {_cursor_empty_warning()}")
+        return
+
     for i, entry in enumerate(entries[:limit]):
         role_display = entry.role.upper()
         if entry.tool_name:
@@ -398,6 +444,55 @@ def _show_raw_transcript(session, limit):
 
     if len(entries) > limit:
         click.echo(f"\n... ({len(entries) - limit} more entries, use --limit to show more)")
+
+
+def _show_artifacts(session):
+    """Display the artifacts ledger for a session."""
+    from .file_tracking import extract_artifacts
+
+    adapter = _get_adapter_for_session(session)
+    entries = adapter.read_session(session)
+    artifacts = extract_artifacts(entries)
+
+    click.echo(f"Session: {session.session_id}")
+    click.echo(f"Project: {session.project}")
+    click.echo(f"Artifacts: {len(artifacts)}")
+    click.echo("-" * 60)
+
+    if not artifacts:
+        if not entries and session.source == "cursor":
+            click.echo(f"Note: {_cursor_empty_warning()}")
+        else:
+            click.echo("No file writes or edits detected in this session.")
+        return
+
+    cwd = Path.cwd()
+    for i, a in enumerate(artifacts, start=1):
+        try:
+            display_path = str(Path(a.file_path).relative_to(cwd))
+        except ValueError:
+            display_path = a.file_path
+
+        ts = a.timestamp[:19] if a.timestamp else "?"
+        click.echo(f"\n[{i}] {a.operation.upper()} {display_path}")
+        click.echo(f"    time: {ts}")
+
+        if a.triggering_user_message:
+            msg = a.triggering_user_message.replace("\n", " ")
+            if len(msg) > 200:
+                msg = msg[:200] + "..."
+            click.echo(f"    trigger: {msg}")
+
+        if a.reference_files:
+            click.echo(f"    refs ({len(a.reference_files)}):")
+            for ref in a.reference_files[:5]:
+                try:
+                    rel = str(Path(ref).relative_to(cwd))
+                except ValueError:
+                    rel = Path(ref).name
+                click.echo(f"      - {rel}")
+            if len(a.reference_files) > 5:
+                click.echo(f"      ... and {len(a.reference_files) - 5} more")
 
 
 def _show_summary(session):

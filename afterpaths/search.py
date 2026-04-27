@@ -28,8 +28,9 @@ class SearchResult:
     matches: list[SearchMatch] = field(default_factory=list)
     total_matches: int = 0
     sessions_searched: int = 0
-    search_mode: str = "summaries"  # "summaries", "transcripts", "combined"
+    search_mode: str = "summaries"  # "summaries", "transcripts", "combined", "deep"
     time_ms: int = 0
+    auto_expanded: bool = False  # True when deep=False found 0 and we escalated
 
 
 def _build_pattern(query: str, case_sensitive: bool, regex: bool) -> re.Pattern:
@@ -191,7 +192,14 @@ def search_combined(
     """Search summaries first, optionally fall back to transcripts.
 
     With deep=True, also searches transcripts for sessions without summary matches.
+
+    When deep=False and the summary search returns zero matches, the search
+    auto-escalates to transcript search across un-summarized sessions — the set
+    most likely to hide matches that summaries dropped. The returned
+    SearchResult has auto_expanded=True in that case.
     """
+    from .storage import get_afterpaths_dir
+
     start = time.monotonic()
 
     # Search summaries first
@@ -202,30 +210,52 @@ def search_combined(
     matches = list(summary_result.matches)
     sessions_with_matches = {m.session.session_id for m in matches}
 
-    # If deep mode, search transcripts for sessions without summary matches
-    if deep and len(matches) < max_results:
-        remaining_sessions = [
-            s for s in sessions if s.session_id not in sessions_with_matches
-        ]
+    auto_expanded = False
+    effective_deep = deep
+    if not deep and len(matches) == 0:
+        effective_deep = True
+        auto_expanded = True
+
+    if effective_deep and len(matches) < max_results:
+        if auto_expanded:
+            # Only search transcripts of un-summarized sessions — summaries that
+            # returned nothing genuinely don't match and re-scanning their raw
+            # transcripts is expensive and low-yield.
+            summaries_dir = get_afterpaths_dir() / "summaries"
+            candidate_sessions = [
+                s for s in sessions
+                if not (summaries_dir / f"{s.session_id}.md").exists()
+            ]
+        else:
+            candidate_sessions = [
+                s for s in sessions if s.session_id not in sessions_with_matches
+            ]
         remaining_limit = max_results - len(matches)
 
         transcript_result = search_transcripts(
-            query, remaining_sessions, case_sensitive, regex, remaining_limit
+            query, candidate_sessions, case_sensitive, regex, remaining_limit
         )
         matches.extend(transcript_result.matches)
 
-    # Sort by score descending
     matches.sort(key=lambda m: m.score, reverse=True)
 
     elapsed = int((time.monotonic() - start) * 1000)
+
+    if deep:
+        mode = "deep"
+    elif auto_expanded:
+        mode = "auto-deep"
+    else:
+        mode = "summaries"
 
     return SearchResult(
         query=query,
         matches=matches[:max_results],
         total_matches=len(matches),
         sessions_searched=len(sessions),
-        search_mode="deep" if deep else "summaries",
+        search_mode=mode,
         time_ms=elapsed,
+        auto_expanded=auto_expanded,
     )
 
 
@@ -236,6 +266,7 @@ def serialize_search_result(result: SearchResult) -> dict:
         "total_matches": result.total_matches,
         "sessions_searched": result.sessions_searched,
         "search_mode": result.search_mode,
+        "auto_expanded": result.auto_expanded,
         "time_ms": result.time_ms,
         "matches": [
             {
